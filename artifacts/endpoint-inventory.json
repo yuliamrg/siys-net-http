@@ -1,0 +1,342 @@
+{
+  "generatedAt": "2026-06-13T00:49:05.183Z",
+  "apiBaseUrl": "https://api.siys.net/api",
+  "endpoints": [
+    {
+      "module": "clients",
+      "method": "GET",
+      "path": "/customer",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "clients",
+      "method": "GET",
+      "path": "/marker",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "clients",
+      "method": "GET",
+      "path": "/policy",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "clients",
+      "method": "GET",
+      "path": "/user/policies",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/crud/findOne",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/customer",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/equipment",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/marker",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/policy",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/subsidiary",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "equipment",
+      "method": "GET",
+      "path": "/user/policies",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "orders",
+      "method": "GET",
+      "path": "/causa-raiz",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "orders",
+      "method": "GET",
+      "path": "/customer",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "orders",
+      "method": "GET",
+      "path": "/marker",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "orders",
+      "method": "GET",
+      "path": "/order-type",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "orders",
+      "method": "GET",
+      "path": "/order/v2",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "orders",
+      "method": "GET",
+      "path": "/user",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/cotizacion-estado",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/cotizacion-unidad-negocio",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/customer",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/marker",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/policy",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/unidad-medida",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/user",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "quotes",
+      "method": "GET",
+      "path": "/user/policies",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 2
+    },
+    {
+      "module": "unknown",
+      "method": "POST",
+      "path": "/login",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "text/html; charset=utf-8"
+      ],
+      "sampleCount": 1
+    },
+    {
+      "module": "unknown",
+      "method": "GET",
+      "path": "/policy",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 4
+    },
+    {
+      "module": "unknown",
+      "method": "GET",
+      "path": "/user/policies",
+      "statuses": [
+        200
+      ],
+      "contentTypes": [
+        "application/json; charset=utf-8"
+      ],
+      "sampleCount": 4
+    }
+  ]
+}

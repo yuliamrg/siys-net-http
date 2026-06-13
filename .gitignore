@@ -1,0 +1,20 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+
+# Secrets and authenticated browser state
+.env
+.env.*
+!.env.example
+private/
+
+# Generated exports
+exports/
+
+# Local/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
