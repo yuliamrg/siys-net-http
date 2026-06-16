@@ -30,15 +30,7 @@ El 15 de junio de 2026 se validó que no es necesario usar la UI para obtener un
 
 El JWT observado tiene tres partes y contiene `iat`, `_id`, `email` y `name`; no contiene `exp`. Por tanto, el cliente no puede calcular una fecha de vencimiento local. La sesión guardada el 12 de junio de 2026 seguía funcionando durante las pruebas del 15 de junio de 2026, lo que indica persistencia superior a un día, pero no prueba duración indefinida.
 
-Se agregó el comando:
-
-```powershell
-npm run login
-```
-
-Este comando ejecuta login por HTTP directo, guarda el token en `private/storage-state.json` con formato compatible con Playwright y permite que `npm run export` siga usando el mismo mecanismo de lectura de sesión. Si el token deja de funcionar, el flujo esperado es ejecutar `npm run login` y repetir la exportación, sin abrir navegador.
-
-El flujo de CLI reutilizable automatiza este proceso: `siys download` usa `SIYS_TOKEN`, la sesión guardada o login HTTP directo con `SIYS_EMAIL` y `SIYS_PASSWORD`. Si una consulta devuelve un error de autenticación, intenta renovar sesión una vez y repite la descarga.
+La CLI reutilizable automatiza este proceso: `siys download` usa `SIYS_TOKEN`, la sesión guardada o login HTTP directo con `SIYS_EMAIL` y `SIYS_PASSWORD`. Si una consulta devuelve un error de autenticación, intenta renovar sesión una vez y repite la descarga. El uso operativo esta documentado en [`cli-manual.md`](cli-manual.md) y [`installation.md`](installation.md).
 
 ## Contratos principales
 
@@ -109,16 +101,6 @@ Prueba ejecutada por HTTP directo, sin abrir navegador:
 | Equipos | 4.908 | `exports/http-direct-equipment-test.json` |
 
 La prueba de órdenes usó `--max-pages 1`; por tanto, el conteo corresponde a la primera página del rango mensual predeterminado en ese momento. Equipos consolidó clientes y luego consultó `/api/equipment?customer=<id>` por cada cliente.
-
-### CLI operativa
-
-La app expone el comando instalable `siys` después de compilar y enlazar el paquete. El comando principal es:
-
-```powershell
-siys download --module all --format xlsx --out-dir exports
-```
-
-`--module` y `--format` aceptan listas separadas por coma o repetición de opciones. Cuando hay múltiples módulos o formatos se genera un archivo por combinación. `--output` se reserva para una sola combinación módulo/formato. `--json` imprime un resumen estructurado para que otras aplicaciones puedan invocar la herramienta como subproceso y leer resultados.
 
 Resultados XLSX del 12 de junio de 2026:
 
