@@ -1,113 +1,94 @@
+#!/usr/bin/env node
 import 'dotenv/config';
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Command, Option } from 'commander';
-import { fetchEndpoint } from './api.js';
-import { loadToken, tokenExpiration } from './auth.js';
-import { captureAssisted } from './capture.js';
-import { exploreAutonomously } from './explore.js';
-import { exportRows } from './exporters.js';
-import { buildInventory } from './inventory.js';
-import { endpointConfigPath, exportsDir } from './paths.js';
-import { modules, type EndpointDefinition, type ExportFormat, type ModuleName } from './types.js';
-import { timestamp } from './utils.js';
+import { Command } from 'commander';
+import { loginDirect, tokenExpiration, tokenIssuedAt } from './auth.js';
+import { buildDownloadOptions, downloadData } from './download.js';
+import { storageStatePath } from './paths.js';
 
-function parseParams(values: string[]): Record<string, string> {
-  return Object.fromEntries(values.map((value) => {
-    const separator = value.indexOf('=');
-    if (separator < 1) throw new Error(`Parametro invalido: ${value}. Usa clave=valor.`);
-    return [value.slice(0, separator), value.slice(separator + 1)];
-  }));
-}
-
-function defaultParams(module: ModuleName): Record<string, string> {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  if (module === 'orders') {
-    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-    return { start: `${year}-${month}-01`, end: now.toISOString().slice(0, 10) };
-  }
-  if (module === 'quotes') {
-    return {
-      fecha_busqueda: '1',
-      inicio: new Date(Date.UTC(year, 0, 1, 5)).toISOString(),
-      fin: now.toISOString(),
-    };
-  }
-  return {};
-}
-
-async function fetchAllEquipment(
-  equipment: EndpointDefinition,
-  clients: EndpointDefinition,
-  token: string,
-  maxPages: number,
-): Promise<Record<string, unknown>[]> {
-  const customerRows = await fetchEndpoint(clients, { token, params: {}, maxPages: 1 });
-  const output: Record<string, unknown>[] = [];
-  const batchSize = 5;
-  for (let index = 0; index < customerRows.length; index += batchSize) {
-    const batch = customerRows.slice(index, index + batchSize);
-    const results = await Promise.all(batch.map(async (customer) => {
-      const id = customer._id;
-      if (typeof id !== 'string') return [];
-      const rows = await fetchEndpoint(equipment, { token, params: { customer: id }, maxPages });
-      return rows.map((row) => ({ _customerId: id, ...row }));
-    }));
-    output.push(...results.flat());
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return output;
-}
-
-async function runExport(options: {
-  module: ModuleName;
-  format: ExportFormat;
-  param: string[];
-  maxPages: number;
-  output?: string;
-}): Promise<void> {
-  const definitions = JSON.parse(await fs.readFile(endpointConfigPath, 'utf8')) as EndpointDefinition[];
-  const selected = definitions.filter((definition) => definition.module === options.module);
-  if (selected.length === 0) {
-    throw new Error(`No hay endpoints inferidos para ${options.module}. Ejecuta capture, navega el modulo y luego inventory.`);
-  }
-  const token = await loadToken();
+async function runLogin(): Promise<void> {
+  const token = await loginDirect();
+  const issuedAt = tokenIssuedAt(token);
   const expiration = tokenExpiration(token);
-  if (expiration && expiration <= new Date()) throw new Error(`El token vencio el ${expiration.toISOString()}. Ejecuta npm run capture.`);
+  console.log('Login HTTP directo completado.');
+  console.log(`Sesion guardada en ${path.relative(process.cwd(), storageStatePath)}`);
+  console.log(`Emitido: ${issuedAt ? issuedAt.toISOString() : 'no informado por el token'}`);
+  console.log(`Vence: ${expiration ? expiration.toISOString() : 'sin exp declarado en el token'}`);
+}
 
-  const params = { ...defaultParams(options.module), ...parseParams(options.param) };
-  const rows: Record<string, unknown>[] = [];
-  if (options.module === 'equipment' && !params.customer) {
-    const clients = definitions.find((definition) => definition.module === 'clients');
-    if (!clients) throw new Error('No existe la definicion del endpoint de clientes. Ejecuta npm run inventory.');
-    rows.push(...await fetchAllEquipment(selected[0], clients, token, options.maxPages));
-  } else {
-    for (const endpoint of selected) {
-      const endpointRows = await fetchEndpoint(endpoint, { token, params, maxPages: options.maxPages });
-      rows.push(...endpointRows.map((row) => ({ _endpoint: endpoint.path, ...row })));
-    }
+async function runDownload(rawOptions: {
+  module?: string[];
+  format?: string[];
+  param?: string[];
+  maxPages?: number;
+  outDir?: string;
+  output?: string;
+  json?: boolean;
+  noAutoLogin?: boolean;
+}): Promise<void> {
+  const options = buildDownloadOptions({
+    module: rawOptions.module,
+    format: rawOptions.format,
+    param: rawOptions.param,
+    maxPages: rawOptions.maxPages,
+    outDir: rawOptions.outDir,
+    output: rawOptions.output,
+    autoLogin: !rawOptions.noAutoLogin,
+  });
+  const results = await downloadData(options);
+  if (rawOptions.json) {
+    console.log(JSON.stringify({ results }, null, 2));
+    return;
   }
-  const output = options.output ?? path.join(exportsDir, `${options.module}-${timestamp()}.${options.format}`);
-  await exportRows(rows, options.format, output);
-  console.log(`Exportados ${rows.length} registros a ${output}`);
+  for (const result of results) {
+    console.log(`Exportados ${result.records} registros de ${result.module} a ${result.output}`);
+  }
+}
+
+async function runCapture(): Promise<void> {
+  const { captureAssisted } = await import('./capture.js');
+  await captureAssisted();
+}
+
+async function runExplore(): Promise<void> {
+  const { exploreAutonomously } = await import('./explore.js');
+  await exploreAutonomously();
+}
+
+async function runInventory(): Promise<void> {
+  const { buildInventory } = await import('./inventory.js');
+  await buildInventory();
+}
+
+function addDownloadOptions(command: Command): Command {
+  return command
+    .option('-m, --module <module>', 'Modulo(s): all, orders, quotes, clients, equipment. Se puede repetir o separar por coma.', collect, [])
+    .option('-f, --format <format>', 'Formato(s): json, csv, xlsx, parquet. Se puede repetir o separar por coma.', collect, [])
+    .option('-p, --param <key=value>', 'Parametro o filtro; se puede repetir. Solo para un modulo.', collect, [])
+    .option('--max-pages <number>', 'Limite de paginas.', parsePositiveInteger, 100)
+    .option('--out-dir <dir>', 'Carpeta destino.', 'exports')
+    .option('-o, --output <file>', 'Archivo de salida. Solo con un modulo y un formato.')
+    .option('--json', 'Imprime resumen en JSON para integraciones.')
+    .option('--no-auto-login', 'No intenta login HTTP si falta o falla la sesion.');
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function parsePositiveInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`Numero invalido: ${value}`);
+  return parsed;
 }
 
 const program = new Command();
-program.name('siys-explorer').description('Exploracion autorizada y de solo lectura de SIYS.');
-program.command('capture').description('Abre Chromium para captura asistida y guarda la sesion local.').action(captureAssisted);
-program.command('explore').description('Recorre en modo lectura los cuatro modulos autorizados.').action(exploreAutonomously);
-program.command('inventory').description('Genera inventario sanitizado y candidatos de endpoints.').action(async () => {
-  await buildInventory();
-});
-program
-  .command('export')
-  .description('Consulta directamente endpoints observados y exporta sus datos.')
-  .addOption(new Option('-m, --module <module>', 'Modulo').choices([...modules]).makeOptionMandatory())
-  .addOption(new Option('-f, --format <format>', 'Formato').choices(['json', 'csv', 'xlsx', 'parquet']).default('json'))
-  .option('-p, --param <key=value>', 'Parametro o filtro; se puede repetir.', (value, previous: string[]) => [...previous, value], [])
-  .option('--max-pages <number>', 'Limite de paginas.', (value) => Number.parseInt(value, 10), 100)
-  .option('-o, --output <file>', 'Ruta de salida.')
-  .action(runExport);
+program.name('siys').description('CLI para descargar datos de SIYS por HTTP directo.');
+program.command('login').description('Autentica por HTTP directo y guarda la sesion local sin abrir navegador.').action(runLogin);
+addDownloadOptions(program.command('download').description('Descarga uno o varios modulos en uno o varios formatos.')).action(runDownload);
+addDownloadOptions(program.command('export').description('Alias compatible de download.')).action(runDownload);
+program.command('capture').description('Abre Chromium para captura asistida y guarda la sesion local.').action(runCapture);
+program.command('explore').description('Recorre en modo lectura los cuatro modulos autorizados.').action(runExplore);
+program.command('inventory').description('Genera inventario sanitizado y candidatos de endpoints.').action(runInventory);
 
 await program.parseAsync();

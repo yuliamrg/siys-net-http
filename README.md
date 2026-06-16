@@ -1,57 +1,122 @@
 # SIYS Explorer
 
-Herramienta local para explorar de forma autorizada y de solo lectura los módulos de órdenes, cotizaciones, clientes y equipos de SIYS, documentar su API y exportar datos.
+CLI local para descargar informacion de SIYS por HTTP directo y entregarla en formatos utiles para analisis: JSON, CSV, XLSX o Parquet.
 
-## Seguridad
+La UI de SIYS no hace parte del flujo operativo. Solo queda como respaldo para diagnostico, captura de endpoints o validacion manual.
 
-- Las credenciales pueden mantenerse únicamente en `.env`, que está excluido de Git.
-- Nunca escribas credenciales en argumentos de terminal ni en archivos versionados.
-- `private/` contiene sesión, JWT, respuestas y capturas; está excluido de Git.
-- No se genera HAR durante el login porque ese formato puede conservar la contraseña enviada.
-- `exports/` también está excluido porque puede contener información sensible.
-- La navegación bloquea todos los métodos salvo `GET`, `HEAD`, `OPTIONS` y `POST https://api.siys.net/login`.
-
-## Flujo
+## Instalacion
 
 ```powershell
-npm run capture
+git clone <repo-url>
+cd explorador_app
+npm ci
+npm run build
+npm link
 ```
 
-Puedes iniciar sesión manualmente o completar primero `SIYS_EMAIL` y `SIYS_PASSWORD` en `.env` para que Playwright lo haga. Navega por los cuatro módulos y vuelve a la terminal para presionar Enter. Después ejecuta:
+Despues de `npm link`, el comando queda disponible como:
 
 ```powershell
-npm run explore
-npm run inventory
+siys --help
 ```
 
-El inventario sanitizado queda en `artifacts/endpoint-inventory.json`. Los endpoints inferidos y las evidencias permanecen en `private/`.
-
-## Exportación
-
-El formato se elige en cada ejecución:
+Tambien se puede usar sin link durante desarrollo:
 
 ```powershell
-npm run export -- --module orders --format json
-npm run export -- --module quotes --format csv
-npm run export -- --module clients --format xlsx
-npm run export -- --module equipment --format parquet
+npm run download -- --module clients --format xlsx
 ```
 
-Los módulos válidos son `orders`, `quotes`, `clients` y `equipment`. Se pueden pasar filtros observados en la aplicación:
+## Configuracion
+
+Copia `.env.example` a `.env` y completa las credenciales autorizadas:
+
+```env
+SIYS_BASE_URL=https://app.siys.net
+SIYS_API_URL=https://api.siys.net/api
+SIYS_LOGIN_URL=https://api.siys.net/login
+SIYS_EMAIL=
+SIYS_PASSWORD=
+SIYS_TOKEN=
+```
+
+La autenticacion usa este orden:
+
+1. `SIYS_TOKEN`, si esta definido.
+2. Token guardado en `private/storage-state.json`.
+3. Login HTTP directo con `SIYS_EMAIL` y `SIYS_PASSWORD`.
+
+El login no abre navegador:
 
 ```powershell
-npm run export -- --module orders --format xlsx --param start=2026-01-01 --param end=2026-06-30
+siys login
 ```
 
-No se inventan filtros: usa únicamente nombres confirmados en el inventario o las capturas. `--max-pages` limita la paginación y `--output` permite elegir la ruta de salida.
+## Descarga
 
-Por defecto, órdenes consulta el mes actual y cotizaciones consulta desde el inicio del año. Los parámetros explícitos reemplazan esos valores. La exportación de equipos sin `--param customer=<id>` recorre los clientes en lotes pequeños y consolida sus equipos.
+Comando principal:
 
-La documentación completa de arquitectura, autenticación, endpoints, campos y resultados está en [`docs/technical-findings.md`](docs/technical-findings.md).
+```powershell
+siys download
+```
 
-## Verificación
+Por defecto descarga todos los modulos en XLSX dentro de `exports/`.
+
+Ejemplos:
+
+```powershell
+siys download --module all --format xlsx --out-dir ./exports
+siys download --module orders,quotes --format json,csv --out-dir ./data
+siys download --module clients --format xlsx --output ./clientes.xlsx
+siys download --module orders --format xlsx --param start=2026-01-01 --param end=2026-06-30
+siys download --module equipment --format parquet --out-dir ./warehouse --json
+```
+
+Opciones principales:
+
+| Opcion | Descripcion |
+| --- | --- |
+| `--module <value>` | `all`, `orders`, `quotes`, `clients`, `equipment`. Se puede repetir o separar por coma. Default: `all`. |
+| `--format <value>` | `json`, `csv`, `xlsx`, `parquet`. Se puede repetir o separar por coma. Default: `xlsx`. |
+| `--out-dir <dir>` | Carpeta destino cuando se generan uno o varios archivos. Default: `exports`. |
+| `--output <file>` | Archivo exacto de salida. Solo valido con un modulo y un formato. |
+| `--param <key=value>` | Filtro observado en SIYS. Solo valido con un modulo. Se puede repetir. |
+| `--max-pages <number>` | Limite de paginas para endpoints paginados. Default: `100`. |
+| `--json` | Imprime resumen estructurado para integracion con otras aplicaciones. |
+| `--no-auto-login` | No intenta login HTTP automatico si falta o falla la sesion. |
+
+`export` queda como alias compatible:
+
+```powershell
+siys export --module clients --format json
+```
+
+## Datos Temporales
+
+- `.env`: credenciales locales. No se versiona.
+- `private/storage-state.json`: token vigente guardado por `siys login` o por login automatico. No se versiona.
+- `private/endpoints.json`: override local de endpoints si se ejecuta `inventory`. No se versiona.
+- `exports/`: archivos descargados. No se versiona.
+
+Los endpoints canonicos para instalaciones limpias estan versionados en el codigo, por lo que `download` no depende de `private/endpoints.json`.
+
+## Comandos Avanzados
+
+Estos comandos son para exploracion o diagnostico, no para el flujo normal de descarga:
+
+```powershell
+siys capture
+siys explore
+siys inventory
+```
+
+`capture` abre Chromium para iniciar sesion o navegar manualmente. `explore` recorre modulos conocidos en modo lectura. `inventory` genera inventario sanitizado de endpoints observados.
+
+## Desarrollo
 
 ```powershell
 npm run typecheck
 npm test
+npm run build
 ```
+
+La documentacion tecnica de arquitectura, autenticacion, endpoints y hallazgos esta en [`docs/technical-findings.md`](docs/technical-findings.md).

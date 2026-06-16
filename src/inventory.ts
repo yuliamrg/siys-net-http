@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { API_URL } from './config.js';
+import { canonicalEndpoints } from './endpoints.js';
 import { capturesDir, endpointConfigPath, inventoryPath } from './paths.js';
 import type { CaptureRecord, EndpointDefinition, EndpointInventory } from './types.js';
 import { writeJson } from './utils.js';
@@ -66,18 +67,6 @@ async function writeEndpointCandidates(files: string[]): Promise<void> {
     }
   }
 
-  const canonical: EndpointDefinition[] = [
-    {
-      module: 'orders',
-      method: 'GET',
-      path: '/order/v2',
-      dataPath: 'docs',
-      pagination: { pageParam: 'page', pageSizeParam: 'limit', pageSize: 100, totalPath: 'total' },
-    },
-    { module: 'quotes', method: 'GET', path: '/cotizacion' },
-    { module: 'clients', method: 'GET', path: '/customer' },
-    { module: 'equipment', method: 'GET', path: '/equipment' },
-  ];
-  const confirmed = canonical.filter((definition) => observedPaths.has(definition.path) || definition.module === 'quotes');
+  const confirmed = canonicalEndpoints.filter((definition) => observedPaths.has(definition.path) || definition.module === 'quotes');
   await writeJson(endpointConfigPath, confirmed);
 }

@@ -1,0 +1,23 @@
+import path from 'node:path';
+import { expect, test } from '@playwright/test';
+import { buildDownloadOptions, outputPathFor, parseFormats, parseModules } from '../src/download.js';
+
+test('parses repeated and comma-separated modules', () => {
+  expect(parseModules(['orders,quotes', 'clients'])).toEqual(['orders', 'quotes', 'clients']);
+  expect(parseModules(['all'])).toEqual(['orders', 'quotes', 'clients', 'equipment']);
+});
+
+test('parses repeated and comma-separated formats', () => {
+  expect(parseFormats(['json,csv', 'xlsx'])).toEqual(['json', 'csv', 'xlsx']);
+  expect(parseFormats([])).toEqual(['xlsx']);
+});
+
+test('rejects output for multiple files', () => {
+  expect(() => buildDownloadOptions({ module: ['orders,quotes'], format: ['xlsx'], output: 'out.xlsx' })).toThrow(/--output/);
+  expect(() => buildDownloadOptions({ module: ['orders'], format: ['json,xlsx'], output: 'out.xlsx' })).toThrow(/--output/);
+});
+
+test('builds output names for download combinations', () => {
+  const options = buildDownloadOptions({ module: ['orders'], format: ['json'], outDir: 'data' });
+  expect(outputPathFor('orders', 'json', options, '20260616-010203')).toBe(path.join('data', 'orders-20260616-010203.json'));
+});

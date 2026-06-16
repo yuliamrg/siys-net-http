@@ -4,11 +4,17 @@
   "private": true,
   "type": "module",
   "description": "Exploracion autorizada y exportacion de datos de SIYS.",
+  "bin": {
+    "siys": "./dist/cli.js"
+  },
   "scripts": {
+    "login": "tsx src/cli.ts login",
+    "download": "tsx src/cli.ts download",
     "capture": "tsx src/cli.ts capture",
     "explore": "tsx src/cli.ts explore",
     "inventory": "tsx src/cli.ts inventory",
-    "export": "tsx src/cli.ts export",
+    "export": "tsx src/cli.ts download",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "playwright test"
   },

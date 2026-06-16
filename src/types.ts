@@ -1,6 +1,7 @@
 export const modules = ['orders', 'quotes', 'clients', 'equipment'] as const;
 export type ModuleName = (typeof modules)[number];
-export type ExportFormat = 'json' | 'csv' | 'xlsx' | 'parquet';
+export const exportFormats = ['json', 'csv', 'xlsx', 'parquet'] as const;
+export type ExportFormat = (typeof exportFormats)[number];
 
 export interface CaptureRecord {
   capturedAt: string;

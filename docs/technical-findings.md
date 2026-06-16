@@ -24,6 +24,22 @@ Fecha de validación: 12 de junio de 2026. Alcance autorizado: órdenes, cotizac
 
 No se observó un endpoint de renovación durante esta exploración. Tampoco se confirmó una expiración automática; debe validarse con una sesión prolongada. La contraseña no se registra en capturas, HAR ni logs del proyecto.
 
+### Login HTTP directo
+
+El 15 de junio de 2026 se validó que no es necesario usar la UI para obtener una sesión. El endpoint `POST https://api.siys.net/login` acepta directamente las credenciales de `.env` (`SIYS_EMAIL` y `SIYS_PASSWORD`) con cuerpo JSON y devuelve un JWT en la respuesta. Aunque el servidor responde con `content-type: text/html; charset=utf-8`, el cuerpo es el token.
+
+El JWT observado tiene tres partes y contiene `iat`, `_id`, `email` y `name`; no contiene `exp`. Por tanto, el cliente no puede calcular una fecha de vencimiento local. La sesión guardada el 12 de junio de 2026 seguía funcionando durante las pruebas del 15 de junio de 2026, lo que indica persistencia superior a un día, pero no prueba duración indefinida.
+
+Se agregó el comando:
+
+```powershell
+npm run login
+```
+
+Este comando ejecuta login por HTTP directo, guarda el token en `private/storage-state.json` con formato compatible con Playwright y permite que `npm run export` siga usando el mismo mecanismo de lectura de sesión. Si el token deja de funcionar, el flujo esperado es ejecutar `npm run login` y repetir la exportación, sin abrir navegador.
+
+El flujo de CLI reutilizable automatiza este proceso: `siys download` usa `SIYS_TOKEN`, la sesión guardada o login HTTP directo con `SIYS_EMAIL` y `SIYS_PASSWORD`. Si una consulta devuelve un error de autenticación, intenta renovar sesión una vez y repite la descarga.
+
 ## Contratos principales
 
 ### Órdenes
@@ -76,6 +92,33 @@ Endpoints auxiliares observados: `/api/subsidiary` y `/api/crud/findOne`.
 ## Exportación validada
 
 El consumidor HTTP funciona sin depender de la interfaz después de obtener una sesión válida. Se validaron JSON y XLSX, y existen exportadores probados para CSV y Parquet.
+
+### Extracción directa sin UI
+
+El 15 de junio de 2026 se confirmó que la extracción de datos no requiere navegar la interfaz cuando ya existe una sesión válida en `private/storage-state.json` o cuando se provee `SIYS_TOKEN`. El comando `export` carga el token y consulta directamente `https://api.siys.net/api` con el encabezado `authentication: Bearer <token>`.
+
+Esto cambia el flujo recomendado para análisis: la UI debe tratarse como mecanismo auxiliar para autenticación inicial, renovación de sesión o descubrimiento de filtros/endpoints nuevos. La descarga operativa puede hacerse únicamente por HTTP, lo que reduce dependencia de selectores, tiempos de carga, pestañas internas y cambios visuales del frontend.
+
+Prueba ejecutada por HTTP directo, sin abrir navegador:
+
+| Módulo | Registros | Archivo |
+| --- | ---: | --- |
+| Clientes | 86 | `exports/http-direct-clients-test.json` |
+| Órdenes | 60 | `exports/http-direct-orders-test.json` |
+| Cotizaciones | 311 | `exports/http-direct-quotes-test.json` |
+| Equipos | 4.908 | `exports/http-direct-equipment-test.json` |
+
+La prueba de órdenes usó `--max-pages 1`; por tanto, el conteo corresponde a la primera página del rango mensual predeterminado en ese momento. Equipos consolidó clientes y luego consultó `/api/equipment?customer=<id>` por cada cliente.
+
+### CLI operativa
+
+La app expone el comando instalable `siys` después de compilar y enlazar el paquete. El comando principal es:
+
+```powershell
+siys download --module all --format xlsx --out-dir exports
+```
+
+`--module` y `--format` aceptan listas separadas por coma o repetición de opciones. Cuando hay múltiples módulos o formatos se genera un archivo por combinación. `--output` se reserva para una sola combinación módulo/formato. `--json` imprime un resumen estructurado para que otras aplicaciones puedan invocar la herramienta como subproceso y leer resultados.
 
 Resultados XLSX del 12 de junio de 2026:
 
