@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { buildDownloadOptions, outputPathFor, parseFormats, parseModules } from '../src/download.js';
+import { buildDownloadOptions, defaultParams, outputPathFor, parseFormats, parseModules } from '../src/download.js';
 
 test('parses repeated and comma-separated modules', () => {
   expect(parseModules(['orders,quotes', 'clients'])).toEqual(['orders', 'quotes', 'clients']);
@@ -20,4 +20,11 @@ test('rejects output for multiple files', () => {
 test('builds output names for download combinations', () => {
   const options = buildDownloadOptions({ module: ['orders'], format: ['json'], outDir: 'data' });
   expect(outputPathFor('orders', 'json', options, '20260616-010203')).toBe(path.join('data', 'orders-20260616-010203.json'));
+});
+
+test('uses the current year as the default orders date range', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const year = today.slice(0, 4);
+
+  expect(defaultParams('orders')).toEqual({ start: `${year}-01-01`, end: today });
 });

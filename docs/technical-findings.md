@@ -40,7 +40,7 @@ La CLI reutilizable automatiza este proceso: `siys download` usa `SIYS_TOKEN`, l
 - Respuesta: objeto con `docs`, `total` y `page`.
 - Paginación confirmada: `page` y `limit`.
 - Filtros observados: `code`, `causa`, `raiz`, `range[]`, `state`, `checkIn`, `subsidiary`, `start`, `end`, `total` y `up`.
-- El consumidor usa por defecto el mes actual y permite reemplazar parámetros desde la CLI.
+- El consumidor usa por defecto desde el inicio del año hasta la fecha de ejecución y permite reemplazar parámetros desde la CLI.
 - Campos principales observados: `_id`, `code`, `observations`, `equipments`, `users`, `checkIn`, `requiredQuotation`, `close`, `type`, `customer`, `subsidiary`, `material`, `dates`, `state`, `created_by`, `tasks`, `counters`, `maintenances`, `created_at` y `update_at`.
 
 Endpoints auxiliares observados: `/api/causa-raiz`, `/api/order-type`, `/api/customer`, `/api/user` y `/api/marker`.
@@ -111,7 +111,7 @@ Resultados XLSX del 12 de junio de 2026:
 | Clientes | 86 | `exports/clients.xlsx` |
 | Equipos | 4.908 | `exports/equipment.xlsx` |
 
-Las cantidades dependen de la fecha, los filtros y los permisos de la cuenta. Órdenes corresponde al rango mensual predeterminado y cotizaciones al rango anual predeterminado.
+Las cantidades dependen de la fecha, los filtros y los permisos de la cuenta. Órdenes y cotizaciones usan un rango anual predeterminado.
 
 ## Seguridad y evidencias
 
