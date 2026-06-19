@@ -96,7 +96,7 @@ siys download --module equipment --format xlsx --param customer=<customer-id>
 
 ## Defaults de Fechas
 
-- `orders`: consulta desde el primer dia del mes actual hasta la fecha actual.
+- `orders`: consulta desde el inicio del año actual hasta la fecha de ejecución.
 - `quotes`: consulta desde el inicio del año actual hasta el momento de ejecucion.
 - `clients`: no aplica filtro por defecto.
 - `equipment`: si no se pasa `customer`, consulta clientes y consolida los equipos de cada cliente.

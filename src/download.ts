@@ -55,8 +55,7 @@ export function defaultParams(module: ModuleName): Record<string, string> {
   const now = new Date();
   const year = now.getUTCFullYear();
   if (module === 'orders') {
-    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-    return { start: `${year}-${month}-01`, end: now.toISOString().slice(0, 10) };
+    return { start: `${year}-01-01`, end: now.toISOString().slice(0, 10) };
   }
   if (module === 'quotes') {
     return {
