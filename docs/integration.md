@@ -78,3 +78,13 @@ Cuando se use desde otra aplicacion, captura `stderr` y el codigo de salida para
 - Usa `--output` solo si descargas un modulo y un formato.
 - No dependas del texto normal de consola; ese texto es para uso humano.
 - No guardes credenciales en argumentos de terminal. Usa `.env` o variables de entorno del proceso.
+
+## Inspeccion jerarquica de ordenes
+
+Para integrar una revision de informes HVAC, usa el comando de solo lectura:
+
+```powershell
+siys order inspect 007393 --output data\order-007393.json --json
+```
+
+La salida de consola incluye `code`, `maintenances` y `output`. El archivo indicado por `output` incluye el snapshot completo de orden, mantenimientos, actividades, referencias de archivos y entrega. No incluye binarios de fotografias ni ejecuta operaciones de escritura.

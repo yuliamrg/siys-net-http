@@ -1,16 +1,17 @@
 import path from 'node:path';
 import { fetchEndpoint } from './api.js';
-import { loginDirect, loadToken, tokenExpiration } from './auth.js';
+import { getAuthenticatedToken, loginDirect } from './auth.js';
 import { loadEndpointDefinitions } from './endpoints.js';
 import { exportRows } from './exporters.js';
 import { exportsDir } from './paths.js';
 import { exportFormats, modules, type EndpointDefinition, type ExportFormat, type ModuleName } from './types.js';
 import { timestamp } from './utils.js';
+import type { QueryParams } from './order-filters.js';
 
 export interface DownloadOptions {
   modules: ModuleName[];
   formats: ExportFormat[];
-  params: Record<string, string>;
+  params: QueryParams;
   maxPages: number;
   outDir: string;
   output?: string;
@@ -24,7 +25,7 @@ export interface DownloadResult {
   output: string;
 }
 
-export function parseParams(values: string[]): Record<string, string> {
+export function parseParams(values: string[]): QueryParams {
   return Object.fromEntries(values.map((value) => {
     const separator = value.indexOf('=');
     if (separator < 1) throw new Error(`Parametro invalido: ${value}. Usa clave=valor.`);
@@ -51,7 +52,7 @@ export function parseFormats(values: string[]): ExportFormat[] {
   return [...new Set(requested)] as ExportFormat[];
 }
 
-export function defaultParams(module: ModuleName): Record<string, string> {
+export function defaultParams(module: ModuleName): QueryParams {
   const now = new Date();
   const year = now.getUTCFullYear();
   if (module === 'orders') {
@@ -71,6 +72,7 @@ export function buildDownloadOptions(options: {
   module?: string[];
   format?: string[];
   param?: string[];
+  params?: QueryParams;
   maxPages?: number;
   outDir?: string;
   output?: string;
@@ -87,7 +89,7 @@ export function buildDownloadOptions(options: {
   return {
     modules: selectedModules,
     formats: selectedFormats,
-    params: parseParams(options.param ?? []),
+    params: { ...parseParams(options.param ?? []), ...(options.params ?? {}) },
     maxPages: options.maxPages ?? 100,
     outDir: options.outDir ?? exportsDir,
     output: options.output,
@@ -118,18 +120,6 @@ async function fetchAllEquipment(
   return output;
 }
 
-async function getToken(autoLogin: boolean): Promise<string> {
-  try {
-    const token = await loadToken();
-    const expiration = tokenExpiration(token);
-    if (!expiration || expiration > new Date()) return token;
-    if (!autoLogin) throw new Error(`El token vencio el ${expiration.toISOString()}. Ejecuta siys login.`);
-  } catch (error) {
-    if (!autoLogin) throw error;
-  }
-  return loginDirect();
-}
-
 function isAuthError(error: unknown): boolean {
   return error instanceof Error && /\b(401|403)\b/.test(error.message);
 }
@@ -138,12 +128,12 @@ async function fetchRows(
   module: ModuleName,
   definitions: EndpointDefinition[],
   token: string,
-  params: Record<string, string>,
+  params: QueryParams,
   maxPages: number,
 ): Promise<Record<string, unknown>[]> {
   const selected = definitions.filter((definition) => definition.module === module);
   if (selected.length === 0) throw new Error(`No hay endpoint definido para ${module}.`);
-  if (module === 'equipment' && !params.customer) {
+  if (module === 'equipment' && typeof params.customer !== 'string') {
     const clients = definitions.find((definition) => definition.module === 'clients');
     if (!clients) throw new Error('No existe la definicion del endpoint de clientes.');
     return fetchAllEquipment(selected[0], clients, token, maxPages);
@@ -162,7 +152,7 @@ export function outputPathFor(module: ModuleName, format: ExportFormat, options:
 
 export async function downloadData(options: DownloadOptions): Promise<DownloadResult[]> {
   const definitions = await loadEndpointDefinitions();
-  let token = await getToken(options.autoLogin);
+  let token = await getAuthenticatedToken(options.autoLogin);
   const results: DownloadResult[] = [];
   const stamp = timestamp();
 

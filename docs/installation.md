@@ -25,6 +25,8 @@ Verifica que el comando quedo disponible:
 siys --help
 ```
 
+Después de `npm link`, `siys` se puede ejecutar desde cualquier carpeta. Al modificar la CLI, volver a ejecutar `npm run build`; el enlace no necesita recrearse mientras el nombre del binario no cambie.
+
 ## Uso Sin `npm link`
 
 Durante desarrollo tambien puedes ejecutar la CLI con scripts npm:
@@ -55,7 +57,7 @@ SIYS_TOKEN=
 
 ## Autenticacion
 
-La CLI busca credenciales en este orden:
+La CLI busca sesión o credenciales en este orden:
 
 1. `SIYS_TOKEN`, si esta definido.
 2. Token guardado en `private/storage-state.json`.
@@ -67,7 +69,7 @@ Puedes iniciar sesion manualmente sin navegador:
 siys login
 ```
 
-`siys download` tambien puede hacer login automatico si tiene `SIYS_EMAIL` y `SIYS_PASSWORD`.
+La sesión guardada se reutiliza en cada ejecución; no se inicia sesión de nuevo mientras SIYS la acepte. Si SIYS rechaza el token y existen `SIYS_EMAIL` y `SIYS_PASSWORD`, la CLI intenta un único login directo y repite la lectura.
 
 ## Verificacion
 
