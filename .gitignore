@@ -11,6 +11,13 @@ private/
 
 # Generated exports
 exports/
+tmp/
+artifacts/orden-*.json
+
+# Operational PDFs are not source files. The curated comparison PDFs in Example/
+# are deliberately versioned as regression references for HVAC wording.
+*.pdf
+!Example/*.pdf
 
 # Local/editor files
 .DS_Store
@@ -18,3 +25,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# Local automation state; contains transient browser and WhatsApp sessions
+.playwright-cli/
+.wacli/

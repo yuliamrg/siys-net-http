@@ -79,3 +79,14 @@ export async function loginDirect(): Promise<string> {
   await saveToken(token);
   return token;
 }
+
+export async function getAuthenticatedToken(autoLogin = true): Promise<string> {
+  try {
+    // SIYS conserva la sesión autenticada. Reutilizar siempre el token disponible
+    // y dejar que el servidor indique si dejó de ser válido.
+    return await loadToken();
+  } catch (error) {
+    if (!autoLogin) throw error;
+  }
+  return loginDirect();
+}

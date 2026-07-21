@@ -15,6 +15,8 @@ npm link
 siys download --module all --format xlsx --out-dir exports
 ```
 
+La skill global `$siys-cli` documenta el uso operativo de este comando desde cualquier carpeta, incluidos filtros, inspección de órdenes y la integración con `$mejorar-informes-freezer-hvac`.
+
 ## Documentacion
 
 | Documento | Para que sirve |
@@ -25,6 +27,8 @@ siys download --module all --format xlsx --out-dir exports
 | [Seguridad y datos locales](docs/security-and-storage.md) | Manejo de credenciales, token, archivos temporales y carpetas no versionadas. |
 | [Comandos de diagnostico](docs/diagnostics.md) | Uso de `capture`, `explore` e `inventory` cuando sea necesario revisar SIYS. |
 | [Informe tecnico](docs/technical-findings.md) | Arquitectura observada, endpoints, autenticacion y hallazgos de exploracion. |
+| [Estructura del informe de orden](docs/order-report-structure.md) | Relacion entre la orden, mantenimientos, actividades, fotografias y el PDF de servicio. |
+| [Aplicación segura de revisiones](docs/order-review-write-contract.md) | Simulación, confirmación, contratos HTTP y auditoría para mejorar textos de órdenes. |
 
 ## Comandos Principales
 

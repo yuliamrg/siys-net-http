@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0",
+  "status": "draft",
+  "generatedAt": "2026-07-15T00:00:00.000Z",
+  "order": {
+    "id": "order-1",
+    "code": "007393",
+    "serviceType": "Mantenimiento Preventivo",
+    "sourceSnapshot": "order-007393.json"
+  },
+  "reviews": [
+    {
+      "maintenanceId": "maintenance-1",
+      "equipmentId": "equipment-1",
+      "equipmentName": "Equipo de prueba",
+      "original": { "observations": "Texto básico", "equipmentState": 1 },
+      "proposed": { "observations": "Se realiza mantenimiento preventivo con acciones documentadas.", "equipmentState": 1 },
+      "reason": "Mejora de claridad.",
+      "evidence": ["activity-1"],
+      "confidence": "high",
+      "manualReview": false,
+      "findings": [],
+      "recommendations": ["Registrar toma de temperaturas en una actividad existente cuando haya evidencia."],
+      "activities": [
+        {
+          "taskId": "task-1",
+          "activityId": "activity-1",
+          "original": { "name": "General", "reply": "Se realiza mtto" },
+          "proposed": { "name": "Mantenimiento general", "reply": "Se realiza mantenimiento preventivo sobre los componentes documentados." },
+          "category": "mantenimiento_general",
+          "action": "edit",
+          "reason": "Nombre y respuesta más claros.",
+          "evidence": ["Texto de actividad"],
+          "confidence": "high"
+        }
+      ],
+      "validations": [
+        {
+          "type": "categoria_faltante",
+          "description": "No hay evidencia de toma de temperaturas.",
+          "recommendation": "Registrar la evidencia en una actividad existente cuando esté disponible.",
+          "manualReview": true
+        }
+      ]
+    }
+  ]
+}

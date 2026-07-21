@@ -30,7 +30,7 @@ No usar credenciales en argumentos de terminal.
 
 ## Token y Sesion
 
-El token observado no declara `exp`, por lo que la CLI no puede calcular localmente su vencimiento. Si una consulta devuelve error de autenticacion, `siys download` intenta renovar sesion una vez usando login HTTP directo.
+El token se guarda una vez autenticado y la CLI lo reutiliza en todas las ejecuciones; no intenta autenticar de nuevo por fecha local. Si SIYS llegara a rechazarlo, `siys download` intenta un único login directo y repite la lectura cuando existen credenciales configuradas.
 
 Flujo recomendado ante error de sesion:
 
