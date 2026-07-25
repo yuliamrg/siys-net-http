@@ -33,6 +33,8 @@ interface Change {
   field: string;
   original: unknown;
   proposed: unknown;
+  /** Explicitly approved replacement of an existing correction, e.g. encoding repair. */
+  force?: boolean;
 }
 export interface ApplyReviewOptions {
   confirm?: boolean;
@@ -103,6 +105,7 @@ function stateOf(current: JsonRecord, field: FieldContract, change: Change): 'pe
   const verified = getPath(current, field.verifyPath);
   if (equalFieldValue(verified, change.proposed)) return 'alreadyApplied';
   if (field.verifyPath !== field.originalPath && verified !== undefined && verified !== null && verified !== '') {
+    if (change.force === true && equalFieldValue(getPath(current, field.originalPath), change.original)) return 'pending';
     throw new Error(`Conflicto en ${change.entity}.${change.field} (${change.maintenanceId}): ya existe una corrección distinta en SIYS.`);
   }
   if (!equalFieldValue(getPath(current, field.originalPath), change.original)) {
@@ -128,14 +131,14 @@ function changesFromReview(review: JsonRecord): Change[] {
   const proposed = record(review.proposed, `proposed de ${maintenanceId}`);
   const forced = forcedFields(review, `revisión ${maintenanceId}`);
   for (const field of ['observations', 'equipmentState']) {
-    if (proposed[field] !== undefined && (!equal(original[field], proposed[field]) || forced.has(field))) changes.push({ entity: 'maintenance', maintenanceId, field, original: original[field], proposed: proposed[field] });
+    if (proposed[field] !== undefined && (!equal(original[field], proposed[field]) || forced.has(field))) changes.push({ entity: 'maintenance', maintenanceId, field, original: original[field], proposed: proposed[field], force: forced.has(field) });
   }
   const tasks = Array.isArray(review.tasks) ? review.tasks : [];
   for (const taskValue of tasks) {
     const task = record(taskValue, 'tarea propuesta'); const taskId = string(task.taskId);
     const before = record(task.original, 'original de tarea'); const after = record(task.proposed, 'propuesta de tarea');
     if (!taskId || typeof after.name !== 'string') throw new Error(`Tarea inválida en ${maintenanceId}.`);
-    if (!equal(before.name, after.name) || forcedFields(task, `tarea ${taskId}`).has('name')) changes.push({ entity: 'task', maintenanceId, taskId, field: 'name', original: before.name, proposed: after.name });
+    if (!equal(before.name, after.name) || forcedFields(task, `tarea ${taskId}`).has('name')) changes.push({ entity: 'task', maintenanceId, taskId, field: 'name', original: before.name, proposed: after.name, force: forcedFields(task, `tarea ${taskId}`).has('name') });
   }
   const activities = Array.isArray(review.activities) ? review.activities : [];
   for (const activityValue of activities) {
@@ -144,7 +147,8 @@ function changesFromReview(review: JsonRecord): Change[] {
     const before = record(activity.original, 'original de actividad'); const after = record(activity.proposed, 'propuesta de actividad');
     if (!taskId || !activityId) throw new Error(`Actividad sin taskId o activityId en ${maintenanceId}.`);
     for (const field of ['name', 'reply']) {
-      if (after[field] !== undefined && (!equal(before[field], after[field]) || forcedFields(activity, `actividad ${activityId}`).has(field))) changes.push({ entity: 'activity', maintenanceId, taskId, activityId, field, original: before[field], proposed: after[field] });
+      const forced = forcedFields(activity, `actividad ${activityId}`).has(field);
+      if (after[field] !== undefined && (!equal(before[field], after[field]) || forced)) changes.push({ entity: 'activity', maintenanceId, taskId, activityId, field, original: before[field], proposed: after[field], force: forced });
     }
   }
   return changes;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import 'dotenv/config';
+import './env.js';
 import path from 'node:path';
 import { Command } from 'commander';
 import { loginDirect, tokenExpiration, tokenIssuedAt } from './auth.js';
@@ -91,8 +91,9 @@ async function runOrderInspect(code: string, rawOptions: {
   outDir?: string;
   json?: boolean;
   noAutoLogin?: boolean;
+  orderId?: string;
 }): Promise<void> {
-  const inspection = await inspectOrder(code, { autoLogin: !rawOptions.noAutoLogin });
+  const inspection = await inspectOrder(code, { autoLogin: !rawOptions.noAutoLogin, orderId: rawOptions.orderId });
   const output = rawOptions.output ?? inspectionOutputPath(code, rawOptions.outDir ?? exportsDir);
   await writeInspection(output, inspection);
   const result = { code: inspection.code, maintenances: inspection.maintenances.length, output };
@@ -158,6 +159,15 @@ async function runOrderBuildVisionReview(snapshot: string, manifest: string, raw
   console.log(JSON.stringify({ ...result, output }, null, 2));
 }
 
+async function runOrderReviewImages(snapshot: string, rawOptions: { output?: string; analysisOutput?: string; model?: string; guidesDir?: string; downloadConcurrency?: number; analysisConcurrency?: number }): Promise<void> {
+  const stem = path.basename(snapshot, path.extname(snapshot));
+  const analysisOutput = rawOptions.analysisOutput ?? path.join('private', 'image-analysis', `analysis-${stem}.json`);
+  const output = rawOptions.output ?? path.join('private', 'image-analysis', `review-${stem}.json`);
+  const report = await analyzeImages(snapshot, analysisOutput, { analyze: true, model: rawOptions.model, guidesDir: rawOptions.guidesDir, downloadConcurrency: rawOptions.downloadConcurrency, analysisConcurrency: rawOptions.analysisConcurrency });
+  const result = await buildVisionReview(snapshot, analysisOutput, output);
+  console.log(JSON.stringify({ orderCode: report.orderCode, evidence: report.evidence.length, analyses: report.analyses.length, analysisOutput, proposals: result.proposals, manual: result.manual, output }, null, 2));
+}
+
 function addDownloadOptions(command: Command): Command {
   return command
     .option('-m, --module <module>', 'Modulo(s): all, orders, quotes, clients, equipment. Se puede repetir o separar por coma.', collect, [])
@@ -209,6 +219,7 @@ program.command('inventory').description('Genera inventario sanitizado y candida
 const order = program.command('order').description('Inspecciona o aplica una revisión aprobada de una orden.');
 order.command('inspect <code>')
   .description('Exporta orden, mantenimientos, actividades, archivos y entrega en un JSON sin descargar imagenes.')
+  .option('--order-id <id>', 'ID exacto de la orden, obligatorio cuando el código histórico tiene coincidencias.')
   .option('-o, --output <file>', 'Archivo JSON de salida.')
   .option('--out-dir <dir>', 'Carpeta destino cuando no se usa --output.', 'exports')
   .option('--json', 'Imprime resumen en JSON para integraciones.')
@@ -239,5 +250,14 @@ order.command('build-vision-review <snapshot> <manifest>')
   .description('Convierte hechos visuales de confianza alta en un borrador trazable; no escribe en SIYS.')
   .option('-o, --output <file>', 'JSON draft de revisión; por defecto en private/image-analysis/.')
   .action(runOrderBuildVisionReview);
+order.command('review-images <snapshot>')
+  .description('Descarga y analiza las fotos visibles con el proveedor multimodal configurado y genera un borrador visual; no escribe en SIYS.')
+  .option('-o, --output <file>', 'JSON draft visual de salida. Por defecto se guarda en private/image-analysis/.')
+  .option('--analysis-output <file>', 'JSON de evidencia visual y análisis. Por defecto se guarda en private/image-analysis/.')
+  .option('--model <id>', 'Modelo multimodal. Por defecto usa SIYS_VISION_MODEL o gpt-5.4-mini.')
+  .option('--guides-dir <dir>', 'Carpeta de guías Markdown por tipo de equipo.')
+  .option('--download-concurrency <n>', 'Descargas simultáneas de fotos; por defecto 6.', parsePositiveInteger)
+  .option('--analysis-concurrency <n>', 'Análisis simultáneos; por defecto 2.', parsePositiveInteger)
+  .action(runOrderReviewImages);
 
 await program.parseAsync();

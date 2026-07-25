@@ -1,3 +1,5 @@
+import './env.js';
+
 export const BASE_URL = process.env.SIYS_BASE_URL ?? 'https://app.siys.net';
 export const API_URL = process.env.SIYS_API_URL ?? 'https://api.siys.net/api';
 export const LOGIN_URL = process.env.SIYS_LOGIN_URL ?? 'https://api.siys.net/login';

@@ -132,6 +132,9 @@ export async function analyzeImages(snapshotPath: string, outputPath: string, op
       }
     }
   }
+  if (options.analyze && planned.length > 0 && !process.env.OPENAI_API_KEY) {
+    throw new Error('Falta OPENAI_API_KEY. Configure la clave antes de solicitar análisis visual; no se generó una revisión textual sin fotos.');
+  }
   const evidence = await mapPool(planned, options.downloadConcurrency ?? 6, async (item) => ({ ...item, ...(await download(item.imageUrl, item.localFile)) }));
   const report: ImageAnalysisReport = { schemaVersion: '1.0', orderCode, generatedAt: new Date().toISOString(), sourceSnapshot: snapshotPath, evidence, analyses: [] };
   const byActivity = new Map<string, ImageEvidence[]>();

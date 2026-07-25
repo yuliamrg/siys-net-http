@@ -163,19 +163,21 @@ El resultado conserva cada foto, hash, actividad, equipo y hallazgo. Las guías 
 
 Por defecto descarga seis fotos en paralelo y analiza dos actividades en paralelo. Para una red o cuota limitada se pueden reducir los límites, por ejemplo `--download-concurrency 3 --analysis-concurrency 1`; no aumentarlos sin probar primero con una orden pequeña. En modo `--analyze`, se entregan al proveedor las URL públicas verificadas de SIYS —no copias base64— y se conservan localmente los hashes de evidencia. El modo requiere autorización para enviar esas imágenes al proveedor configurado.
 
-Tras el análisis, convertir solo los hechos visuales de confianza alta en un borrador de revisión trazable:
+La skill `$mejorar-ordenes-siys-net` usa `analyze-images` sin `--analyze` para descargar y organizar las fotos localmente. El análisis visual se hace con hojas de contacto y Codex; no requiere `OPENAI_API_KEY` ni envía imágenes a un proveedor externo.
 
-```powershell
-siys order build-vision-review .\orden-007403.json .\private\image-analysis\analysis-orden-007403.json
-```
-
-El borrador no modifica SIYS. Solo propone la descripción profesional generada a partir de hechos visuales de confianza alta para una actividad vacía o genérica; si ya hay un diagnóstico o descripción técnica, la conserva y marca la actividad para revisión humana. La propuesta incluye las URL y hashes de sus fotos.
+Los comandos `review-images` y `build-vision-review` permanecen disponibles para flujos que cuenten con un proveedor multimodal configurado.
 
 ```powershell
 siys order inspect 007393 --output orden-007393.json --json
 ```
 
 El codigo puede escribirse con o sin ceros iniciales. La salida JSON conserva IDs estables para que una herramienta de revision pueda proponer cambios trazables.
+
+Si un código histórico tiene más de una coincidencia, identifica primero el ID exacto y úsalo junto con el código esperado. Esto evita inspeccionar una orden distinta:
+
+```powershell
+siys order inspect 000462 --order-id 6a3ef87eb02db19c4480f820 --output orden-000462.json --json
+```
 
 ## Aplicar una revisión aprobada
 

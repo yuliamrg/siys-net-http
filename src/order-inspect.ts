@@ -39,6 +39,8 @@ export interface OrderInspection {
 export interface InspectOrderOptions {
   autoLogin?: boolean;
   concurrency?: number;
+  /** Selects an exact order when its historical code is not unique. */
+  orderId?: string;
 }
 
 function asRecord(value: unknown, label: string): JsonRecord {
@@ -104,8 +106,27 @@ async function loadInspection(code: string, token: string, concurrency: number):
   const orderId = asString(matches[0]._id);
   if (!orderId) throw new Error(`La orden ${formatCode(code)} no contiene _id.`);
 
+  return loadInspectionById(code, orderId, token, concurrency, { total: list.total, page: list.page });
+}
+
+async function loadInspectionById(
+  code: string,
+  orderId: string,
+  token: string,
+  concurrency: number,
+  list: { total?: number; page?: number } = { total: 1, page: 1 },
+): Promise<OrderInspection> {
   const detailResponse = await fetchApiJson<OrderDetailResponse>(`/order/${encodeURIComponent(orderId)}/detail?full=true`, token);
   const order = asRecord(detailResponse.doc, 'detalle de orden');
+  let returnedCode: string;
+  try {
+    returnedCode = orderCode(String(order.code ?? ''));
+  } catch {
+    throw new Error(`El ID de orden ${orderId} no contiene un código de orden válido.`);
+  }
+  if (returnedCode !== code) {
+    throw new Error(`El ID de orden ${orderId} corresponde a la orden ${formatCode(returnedCode)}, no a la orden ${formatCode(code)} solicitada.`);
+  }
   const links = Array.isArray(order.maintenances) ? order.maintenances.map((value) => asRecord(value, 'mantenimiento resumido')) : [];
   const maintenances = await mapConcurrent(links, concurrency, async (link) => {
     const maintenanceId = identifier(link.maintenance);
@@ -128,7 +149,7 @@ async function loadInspection(code: string, token: string, concurrency: number):
     schemaVersion: '1.0',
     extractedAt: new Date().toISOString(),
     code: formatCode(code),
-    source: { list: { total: list.total, page: list.page }, orderId },
+    source: { list, orderId },
     order,
     maintenances,
     delivery,
@@ -139,13 +160,18 @@ export async function inspectOrder(codeInput: string, options: InspectOrderOptio
   const code = orderCode(codeInput);
   const autoLogin = options.autoLogin ?? true;
   const concurrency = options.concurrency ?? 5;
+  const explicitOrderId = options.orderId?.trim();
+  if (options.orderId !== undefined && !explicitOrderId) throw new Error('El ID de orden no puede estar vacío.');
+  const load = (token: string): Promise<OrderInspection> => explicitOrderId
+    ? loadInspectionById(code, explicitOrderId, token, concurrency)
+    : loadInspection(code, token, concurrency);
   let token = await getAuthenticatedToken(autoLogin);
   try {
-    return await loadInspection(code, token, concurrency);
+    return await load(token);
   } catch (error) {
     if (!autoLogin || !isAuthError(error)) throw error;
     token = await loginDirect();
-    return loadInspection(code, token, concurrency);
+    return load(token);
   }
 }
 

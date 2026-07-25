@@ -51,10 +51,28 @@ test('rejects missing orders and incomplete maintenance links', async () => {
   global.fetch = async (input) => {
     const url = String(input);
     if (url.includes('/order/v2?')) return response({ docs: [{ _id: 'order-id', code: 7393 }] });
-    if (url.endsWith('/order/order-id/detail?full=true')) return response({ doc: { _id: 'order-id', maintenances: [{ _id: 'link-1' }] } });
+    if (url.endsWith('/order/order-id/detail?full=true')) return response({ doc: { _id: 'order-id', code: 7393, maintenances: [{ _id: 'link-1' }] } });
     throw new Error(`Ruta inesperada: ${url}`);
   };
   await expect(inspectOrder('7393', { autoLogin: false })).rejects.toThrow(/sin identificador/);
+});
+
+test('inspects an exact order ID without querying the ambiguous code list', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const calls: string[] = [];
+  global.fetch = async (input) => {
+    const url = String(input); calls.push(url);
+    if (url.endsWith('/order/order-exacto/detail?full=true')) return response({ doc: {
+      _id: 'order-exacto', code: 462, maintenances: [],
+    } });
+    throw new Error(`Ruta inesperada: ${url}`);
+  };
+
+  const inspection = await inspectOrder('000462', { autoLogin: false, orderId: 'order-exacto' });
+
+  expect(inspection.source.orderId).toBe('order-exacto');
+  expect(inspection.code).toBe('000462');
+  expect(calls).toEqual([expect.stringContaining('/order/order-exacto/detail?full=true')]);
 });
 
 test('writes inspection output atomically and formats default paths', async () => {

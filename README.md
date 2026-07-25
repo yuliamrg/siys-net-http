@@ -15,7 +15,7 @@ npm link
 siys download --module all --format xlsx --out-dir exports
 ```
 
-La skill global `$siys-cli` documenta el uso operativo de este comando desde cualquier carpeta, incluidos filtros, inspección de órdenes y la integración con `$mejorar-informes-freezer-hvac`.
+La skill global `$siys-cli` documenta el uso operativo de este comando desde cualquier carpeta, incluidos filtros, inspección de órdenes y la integración con `$mejorar-ordenes-siys-net`.
 
 ## Documentacion
 

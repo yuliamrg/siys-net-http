@@ -87,4 +87,6 @@ Para integrar una revision de informes HVAC, usa el comando de solo lectura:
 siys order inspect 007393 --output data\order-007393.json --json
 ```
 
+Para un código histórico repetido, incluye `--order-id <id>`; la CLI valida que ese ID corresponda al código solicitado antes de continuar.
+
 La salida de consola incluye `code`, `maintenances` y `output`. El archivo indicado por `output` incluye el snapshot completo de orden, mantenimientos, actividades, referencias de archivos y entrega. No incluye binarios de fotografias ni ejecuta operaciones de escritura.

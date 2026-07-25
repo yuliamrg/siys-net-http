@@ -14,6 +14,11 @@ exports/
 tmp/
 artifacts/orden-*.json
 
+# Local SI&S order exports and review drafts
+/orden-*.json
+/ordenes-*.json
+/revision-*.json
+
 # Operational PDFs are not source files. The curated comparison PDFs in Example/
 # are deliberately versioned as regression references for HVAC wording.
 *.pdf

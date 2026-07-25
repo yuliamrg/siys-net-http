@@ -331,7 +331,7 @@ También conviene conservar un manifiesto con total, page, order_id, maintenance
 
 ## 11. Revision textual API-first
 
-La CLI incorpora `siys order inspect <codigo>` para generar un snapshot de solo lectura con IDs estables. La skill `mejorar-informes-freezer-hvac` usa ese snapshot para proponer mejoras en observaciones, estado, nombres y replies de actividades, sin descargar ni clasificar fotografias.
+La CLI incorpora `siys order inspect <codigo>` para generar un snapshot de solo lectura con IDs estables. La skill `mejorar-ordenes-siys-net` usa ese snapshot para proponer mejoras por equipo en nombres de tareas, descripciones y observaciones finales, usando la evidencia fotográfica visible cuando exista.
 
 La propuesta se guarda en JSON con estado `draft` y se refleja en un Excel con hojas de equipos, actividades y validaciones. Tras validación del coordinador, el JSON se marca `approved` y se puede aplicar con vista previa y confirmación explícita:
 
