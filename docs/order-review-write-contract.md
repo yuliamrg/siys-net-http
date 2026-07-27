@@ -1,6 +1,6 @@
 # Aplicación segura de revisiones de orden
 
-`siys order apply-review` solo edita campos ya existentes: observaciones y estado del mantenimiento, nombre de tarea y nombre/respuesta de actividad. No crea, borra, mueve ni modifica fotos, archivos, visibilidad, fechas, usuarios o entrega.
+`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. No borra actividades o imágenes, no mueve evidencia y no modifica fechas, usuarios o entrega.
 
 Antes de habilitar una ruta de escritura, capturar una edición equivalente en SIYS y validar manualmente el método, URL y cuerpo. Guardar el resultado en una ruta privada; la CLI no trae un contrato activo ni adivina endpoints.
 
@@ -34,7 +34,94 @@ El archivo pasado con `--contract` debe contener únicamente los endpoints y cam
 }
 ```
 
-El contrato acepta solo `PATCH` o `PUT`, rutas relativas y cuerpos con los campos declarados. `path` sirve cuando el valor leído y el enviado tienen la misma ruta. Cuando SIYS almacene correcciones separadas, declarar `originalPath` (valor que se compara contra el snapshot), `verifyPath` (valor que se verifica tras guardar) y `bodyPath` (valor enviado), todos capturados de la app. Un campo puede declarar además su propio `method` y `path` cuando la interfaz use una URL distinta dentro de la misma actividad. Mantenerlo fuera de Git, por ejemplo en `private/`.
+El contrato `1.0` conserva compatibilidad con las ediciones de texto existentes. Acepta solo `PATCH` o `PUT`, rutas relativas y cuerpos con los campos declarados. `path` sirve cuando el valor leído y el enviado tienen la misma ruta. Cuando SIYS almacene correcciones separadas, declarar `originalPath` (valor que se compara contra el snapshot), `verifyPath` (valor que se verifica tras guardar) y `bodyPath` (valor enviado), todos capturados de la app. Un campo puede declarar además su propio `method` y `path` cuando la interfaz use una URL distinta dentro de la misma actividad. Mantenerlo fuera de Git, por ejemplo en `private/`.
+
+## Contrato 1.1 para actividades, imágenes y visibilidad
+
+El contrato `1.1` añade una lista `actions`. La CLI compara método y plantilla con una lista cerrada; no admite rutas arbitrarias ni habilita borrados.
+
+```json
+{
+  "schemaVersion": "1.1",
+  "enabled": true,
+  "operations": {},
+  "actions": {
+    "addActivity": {
+      "create": { "method": "PATCH", "path": "/maintenance/{maintenanceId}/task/{taskId}/add-activity" },
+      "name": {
+        "method": "PUT",
+        "path": "/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=nameCorrected",
+        "bodyPath": "reply",
+        "verifyPath": "nameCorrected.reply"
+      },
+      "reply": {
+        "method": "PUT",
+        "path": "/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=replyCorrected",
+        "bodyPath": "reply",
+        "verifyPath": "replyCorrected.reply"
+      }
+    },
+    "addImage": {
+      "upload": { "method": "POST", "path": "/file", "folder": "maintenance-files", "miniatura": "1" },
+      "attach": { "method": "PATCH", "path": "/maintenance/{maintenanceId}/task/{taskIndex}/activity/{activityIndex}/add-file/{fileId}" }
+    },
+    "setImageVisibility": {
+      "toggle": { "method": "PATCH", "path": "/maintenance/{maintenanceId}/task/{taskIndex}/activity/{activityIndex}/file/{fileId}/toggle-hidden" }
+    },
+    "setActivityVisibility": {
+      "update": {
+        "method": "PUT",
+        "path": "/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=visible",
+        "bodyPath": "visible",
+        "verifyPath": "visible"
+      }
+    }
+  }
+}
+```
+
+Cada entrada de `reviews[].operations[]` requiere un `operationId` único. Formas admitidas:
+
+```json
+[
+  {
+    "operationId": "equipo-1-actividad-1",
+    "action": "addActivity",
+    "taskId": "ID_TAREA",
+    "original": { "activityIds": ["ID_ACTIVIDAD_EXISTENTE"] },
+    "proposed": { "name": "Nombre aprobado", "reply": "Descripción aprobada" }
+  },
+  {
+    "operationId": "equipo-1-imagen-1",
+    "action": "addImage",
+    "taskId": "ID_TAREA",
+    "activityId": "ID_ACTIVIDAD",
+    "original": { "fileIds": ["ID_ARCHIVO_EXISTENTE"] },
+    "source": { "path": "C:\\ruta\\absoluta\\evidencia.jpg", "sha256": "HASH_SHA256_64_HEX" }
+  },
+  {
+    "operationId": "equipo-1-visibilidad-imagen-1",
+    "action": "setImageVisibility",
+    "taskId": "ID_TAREA",
+    "activityId": "ID_ACTIVIDAD",
+    "fileId": "ID_ARCHIVO",
+    "original": { "visible": true },
+    "proposed": { "visible": false }
+  },
+  {
+    "operationId": "equipo-1-visibilidad-actividad-1",
+    "action": "setActivityVisibility",
+    "taskId": "ID_TAREA",
+    "activityId": "ID_ACTIVIDAD",
+    "original": { "visible": true },
+    "proposed": { "visible": false }
+  }
+]
+```
+
+Usar una ruta absoluta para la imagen y calcular su SHA-256 después de descargarla o seleccionarla. Se admiten `.jpg`, `.jpeg`, `.png` y `.gif`. `addActivity` representa tres escrituras; `addImage`, dos; cada cambio de visibilidad, una. El límite `--max-changes` cuenta escrituras HTTP, no entradas de operación.
+
+No referenciar en el mismo JSON una actividad o un archivo que aún no existe. Aplicar la creación, volver a inspeccionar la orden y preparar una nueva revisión con los IDs confirmados. Para las rutas fotográficas, la CLI vuelve a resolver `taskIndex` y `activityIndex` inmediatamente antes de asociar o cambiar visibilidad; el JSON siempre expresa el estado deseado y nunca ordena “alternar” directamente.
 
 Contrato confirmado en la prueba de 006668 para el nombre corregido de una actividad:
 
@@ -123,6 +210,14 @@ El estado solo se incluye en un JSON de revisión cuando la observación, activi
    ```
 
 La aplicación relee todos los mantenimientos, compara cada valor original y se detiene ante un conflicto. Si detecta que la corrección propuesta ya está guardada, la marca `alreadyApplied` y no vuelve a escribirla; esto permite retomar un lote interrumpido. Al aplicar, relee de nuevo inmediatamente antes de cada operación, usa una sola escritura a la vez (350 ms por defecto), no reintenta escrituras ambiguas y verifica el valor guardado. Siempre deja una auditoría JSON local; una falla deja la auditoría parcial para revisión.
+
+Para continuar una operación de varios pasos sin duplicar una actividad o una carga ya confirmada, usar la auditoría parcial:
+
+```powershell
+siys order apply-review revision-aprobada.json --contract contract.json --resume-audit auditoria-parcial.json --confirm --json
+```
+
+La CLI exige que los hashes SHA-256 de la revisión y del contrato coincidan con la auditoría. La auditoría registra cada paso, IDs creados, índices resueltos y estados `completed`, `alreadyApplied`, `failed` o `ambiguous`, sin guardar base64 ni credenciales.
 
 Para una prueba de no alteración visual, el JSON puede incluir `"forceApply": ["observations"]` en una revisión o `"forceApply": ["name", "reply"]` en una actividad. Esta excepción solo sirve si el contrato verifica una corrección separada del valor original; la CLI la rechaza para campos que escriben directamente sobre el original. Debe conservar el mismo texto, motivo de prueba y aprobación del coordinador.
 

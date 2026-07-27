@@ -53,8 +53,8 @@ export async function fetchApiJson<T>(apiPath: string, token: string): Promise<T
 export async function sendApiJson<T>(
   apiPath: string,
   token: string,
-  method: 'PATCH' | 'PUT',
-  body: Record<string, unknown>,
+  method: 'PATCH' | 'PUT' | 'POST',
+  body?: Record<string, unknown>,
   timeoutMs = 15_000,
 ): Promise<T> {
   const normalizedPath = apiPath.startsWith('/') ? apiPath : `/${apiPath}`;
@@ -68,7 +68,7 @@ export async function sendApiJson<T>(
         'content-type': 'application/json',
         authentication: `Bearer ${token}`,
       },
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${method} ${normalizedPath}`);

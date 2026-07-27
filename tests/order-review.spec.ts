@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -209,5 +210,213 @@ test('stops on a rate-limit response without retrying an ambiguous write and exp
   try { await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0 }); }
   catch (caught) { error = caught; }
   expect(error.message).toMatch(/429/); expect(error.applyResult.applied).toHaveLength(2); expect(error.applyResult.audit.status).toBe('failed'); expect(writes).toBe(3);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+async function actionFixture(operation: Record<string, unknown>, status: 'draft' | 'approved' = 'approved') {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-order-actions-'));
+  const draft = path.join(directory, 'review.json'); const contract = path.join(directory, 'contract.json');
+  await fs.writeFile(draft, JSON.stringify({
+    schemaVersion: '1.1', status, order: { code: '007257' }, reviews: [{
+      maintenanceId: 'maintenance-1', original: {}, proposed: {}, operations: [operation],
+    }],
+  }), 'utf8');
+  await fs.writeFile(contract, JSON.stringify({
+    schemaVersion: '1.1', enabled: true, operations: {}, actions: {
+      addActivity: {
+        create: { method: 'PATCH', path: '/maintenance/{maintenanceId}/task/{taskId}/add-activity' },
+        name: { method: 'PUT', path: '/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=nameCorrected', bodyPath: 'reply', verifyPath: 'nameCorrected.reply' },
+        reply: { method: 'PUT', path: '/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=replyCorrected', bodyPath: 'reply', verifyPath: 'replyCorrected.reply' },
+      },
+      addImage: {
+        upload: { method: 'POST', path: '/file', folder: 'maintenance-files', miniatura: '1' },
+        attach: { method: 'PATCH', path: '/maintenance/{maintenanceId}/task/{taskIndex}/activity/{activityIndex}/add-file/{fileId}' },
+      },
+      setImageVisibility: {
+        toggle: { method: 'PATCH', path: '/maintenance/{maintenanceId}/task/{taskIndex}/activity/{activityIndex}/file/{fileId}/toggle-hidden' },
+      },
+      setActivityVisibility: {
+        update: { method: 'PUT', path: '/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=visible', bodyPath: 'visible', verifyPath: 'visible' },
+      },
+    },
+  }), 'utf8');
+  return { directory, draft, contract };
+}
+
+function actionState(): any {
+  return {
+    _id: 'maintenance-1',
+    tasks: [
+      { _id: 'other-task', activitys: [] },
+      { _id: 'task-1', activitys: [
+        { _id: 'other-activity', visible: true, file: [], hiddenFile: [] },
+        { _id: 'activity-1', visible: true, file: [{ _id: 'file-1' }], hiddenFile: [] },
+      ] },
+    ],
+  };
+}
+
+test('schema 1.1 creates an activity and completes its approved name and description', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await actionFixture({
+    operationId: 'activity-audit-1', action: 'addActivity', taskId: 'task-1',
+    original: { activityIds: ['other-activity', 'activity-1'] },
+    proposed: { name: 'Validación de gestión de evidencia', reply: 'Prueba controlada.' },
+  });
+  const state = actionState(); const writes: Array<{ method?: string; url: string; body?: string }> = [];
+  global.fetch = async (input, init) => {
+    const url = String(input); if (init?.method === 'GET') return response(state);
+    writes.push({ method: init?.method, url, body: init?.body as string | undefined });
+    if (url.endsWith('/add-activity')) { state.tasks[1].activitys.push({ _id: 'activity-new', visible: true, file: [], hiddenFile: [] }); return response({ _id: 'activity-new' }); }
+    const activity = state.tasks[1].activitys[2]; const body = JSON.parse(String(init?.body));
+    if (url.includes('field=nameCorrected')) activity.nameCorrected = { reply: body.reply };
+    if (url.includes('field=replyCorrected')) activity.replyCorrected = { reply: body.reply };
+    return response({});
+  };
+  const result = await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(3); expect(result.applied).toHaveLength(1);
+  expect(writes.map(({ method, url, body }) => `${method} ${new URL(url).pathname}${new URL(url).search} ${body ?? ''}`)).toEqual([
+    'PATCH /api/maintenance/maintenance-1/task/task-1/add-activity ',
+    'PUT /api/maintenance/maintenance-1/task/task-1/activity/activity-new?field=nameCorrected {"reply":"Validación de gestión de evidencia"}',
+    'PUT /api/maintenance/maintenance-1/task/task-1/activity/activity-new?field=replyCorrected {"reply":"Prueba controlada."}',
+  ]);
+  expect(result.steps.map((step) => step.step)).toEqual(['create', 'name', 'reply']);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('uploads and attaches an approved image using freshly resolved task and activity indices', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-image-source-')); const image = path.join(directory, 'evidence.jpg');
+  await fs.writeFile(image, Buffer.from([0xff, 0xd8, 0xff, 0xd9])); const sha256 = crypto.createHash('sha256').update(await fs.readFile(image)).digest('hex');
+  const files = await actionFixture({
+    operationId: 'image-audit-1', action: 'addImage', taskId: 'task-1', activityId: 'activity-1',
+    original: { fileIds: ['file-1'] }, source: { path: image, sha256 },
+  });
+  const state = actionState(); const writes: Array<{ method?: string; url: string; body?: string }> = [];
+  global.fetch = async (input, init) => {
+    const url = String(input); if (init?.method === 'GET') return response(state);
+    writes.push({ method: init?.method, url, body: init?.body as string | undefined });
+    if (url.endsWith('/api/file')) return response({ _id: 'file-new' });
+    state.tasks[1].activitys[1].file.push({ _id: 'file-new' }); return response({});
+  };
+  const result = await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(2);
+  expect(writes[0].method).toBe('POST'); expect(writes[0].url).toMatch(/\/api\/file$/);
+  expect(JSON.parse(writes[0].body!)).toEqual({ content: '/9j/2Q==', folder: 'maintenance-files', miniatura: '1', fileName: 'evidence.jpg' });
+  expect(writes[1]).toMatchObject({ method: 'PATCH' });
+  expect(writes[1].url).toMatch(/\/task\/1\/activity\/1\/add-file\/file-new$/);
+  await fs.rm(files.directory, { recursive: true, force: true }); await fs.rm(directory, { recursive: true, force: true });
+});
+
+test('exposes desired image visibility while using the SIYS toggle endpoint', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await actionFixture({
+    operationId: 'image-visible-1', action: 'setImageVisibility', taskId: 'task-1', activityId: 'activity-1', fileId: 'file-1',
+    original: { visible: true }, proposed: { visible: false },
+  });
+  const state = actionState(); const writes: string[] = [];
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return response(state);
+    writes.push(`${init?.method} ${input}`); state.tasks[1].activitys[1].hiddenFile = [{ _id: 'file-1' }]; return response({});
+  };
+  const result = await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.applied).toHaveLength(1);
+  expect(writes).toEqual(['PATCH https://api.siys.net/api/maintenance/maintenance-1/task/1/activity/1/file/file-1/toggle-hidden']);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('sets whole-activity visibility with a boolean body and supports alreadyApplied', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await actionFixture({
+    operationId: 'activity-visible-1', action: 'setActivityVisibility', taskId: 'task-1', activityId: 'activity-1',
+    original: { visible: true }, proposed: { visible: false },
+  });
+  const state = actionState(); const writes: string[] = [];
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return response(state);
+    writes.push(`${init?.method} ${input} ${init?.body}`); state.tasks[1].activitys[1].visible = false; return response({});
+  };
+  const first = await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(first.applied).toHaveLength(1); expect(writes).toEqual(['PUT https://api.siys.net/api/maintenance/maintenance-1/task/task-1/activity/activity-1?field=visible {"visible":false}']);
+  writes.length = 0;
+  const second = await applyReview(files.draft, { contractPath: files.contract, autoLogin: false });
+  expect(second.alreadyApplied).toHaveLength(1); expect(writes).toHaveLength(0);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('rejects changed source hashes and duplicate operation IDs before any mutation', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-image-hash-')); const image = path.join(directory, 'evidence.png'); await fs.writeFile(image, 'changed');
+  const operation = { operationId: 'duplicate-op', action: 'addImage', taskId: 'task-1', activityId: 'activity-1', original: { fileIds: ['file-1'] }, source: { path: image, sha256: '0'.repeat(64) } };
+  const files = await actionFixture(operation);
+  global.fetch = async () => response(actionState());
+  await expect(applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false })).rejects.toThrow(/SHA-256/);
+  const draft = JSON.parse(await fs.readFile(files.draft, 'utf8')); draft.reviews[0].operations.push(operation); await fs.writeFile(files.draft, JSON.stringify(draft), 'utf8');
+  await expect(applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false })).rejects.toThrow(/operationId duplicado/);
+  await fs.rm(files.directory, { recursive: true, force: true }); await fs.rm(directory, { recursive: true, force: true });
+});
+
+test('resumes addActivity after creation without creating a duplicate activity', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await actionFixture({
+    operationId: 'resume-activity-1', action: 'addActivity', taskId: 'task-1',
+    original: { activityIds: ['other-activity', 'activity-1'] }, proposed: { name: 'Actividad auditada', reply: 'Descripción auditada' },
+  });
+  const state = actionState(); let creates = 0; let failProgress = true;
+  global.fetch = async (input, init) => {
+    const url = String(input); if (init?.method === 'GET') return response(state);
+    if (url.endsWith('/add-activity')) { creates += 1; state.tasks[1].activitys.push({ _id: 'activity-resumed', visible: true, file: [], hiddenFile: [] }); return response({ _id: 'activity-resumed' }); }
+    const body = JSON.parse(String(init?.body)); const activity = state.tasks[1].activitys[2];
+    if (url.includes('nameCorrected')) activity.nameCorrected = { reply: body.reply };
+    if (url.includes('replyCorrected')) activity.replyCorrected = { reply: body.reply };
+    return response({});
+  };
+  let firstError: any;
+  try {
+    await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0, onProgress: async (result) => {
+      if (failProgress && result.steps.some((step) => step.step === 'create')) { failProgress = false; throw new Error('corte simulado'); }
+    } });
+  } catch (error) { firstError = error; }
+  const audit = path.join(files.directory, 'partial-audit.json'); await fs.writeFile(audit, JSON.stringify(firstError.applyResult), 'utf8');
+  const resumed = await applyReview(files.draft, { contractPath: files.contract, resumeAuditPath: audit, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(creates).toBe(1); expect(resumed.applied).toHaveLength(1);
+  expect(state.tasks[1].activitys[2]).toMatchObject({ nameCorrected: { reply: 'Actividad auditada' }, replyCorrected: { reply: 'Descripción auditada' } });
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plans multiple schema 1.1 operations and counts their underlying writes', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-multi-actions-')); const image = path.join(directory, 'evidence.gif'); await fs.writeFile(image, 'GIF89a');
+  const sha256 = crypto.createHash('sha256').update(await fs.readFile(image)).digest('hex');
+  const files = await actionFixture({
+    operationId: 'multi-add-activity', action: 'addActivity', taskId: 'task-1', original: { activityIds: ['other-activity', 'activity-1'] }, proposed: { name: 'Nueva', reply: 'Descripción' },
+  }, 'draft');
+  const draft = JSON.parse(await fs.readFile(files.draft, 'utf8'));
+  draft.reviews[0].operations.push(
+    { operationId: 'multi-add-image', action: 'addImage', taskId: 'task-1', activityId: 'activity-1', original: { fileIds: ['file-1'] }, source: { path: image, sha256 } },
+    { operationId: 'multi-image-visible', action: 'setImageVisibility', taskId: 'task-1', activityId: 'activity-1', fileId: 'file-1', original: { visible: true }, proposed: { visible: false } },
+    { operationId: 'multi-activity-visible', action: 'setActivityVisibility', taskId: 'task-1', activityId: 'activity-1', original: { visible: true }, proposed: { visible: false } },
+  );
+  await fs.writeFile(files.draft, JSON.stringify(draft), 'utf8'); const methods: string[] = [];
+  global.fetch = async (_input, init) => { methods.push(String(init?.method)); return response(actionState()); };
+  const result = await applyReview(files.draft, { contractPath: files.contract, autoLogin: false });
+  expect(result.planned).toHaveLength(4); expect(result.plannedWrites).toBe(7); expect(methods).toEqual(['GET']);
+  await fs.rm(files.directory, { recursive: true, force: true }); await fs.rm(directory, { recursive: true, force: true });
+});
+
+test('re-reads once after an ambiguous visibility timeout and does not retry the write', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await actionFixture({
+    operationId: 'timeout-visible-1', action: 'setActivityVisibility', taskId: 'task-1', activityId: 'activity-1',
+    original: { visible: true }, proposed: { visible: false },
+  });
+  const state = actionState(); let writes = 0;
+  global.fetch = async (_input, init) => {
+    if (init?.method === 'GET') return response(state);
+    writes += 1; state.tasks[1].activitys[1].visible = false;
+    throw new Error('Tiempo de espera al escribir PUT /maintenance/test. No se reintentó: verifica la orden antes de continuar.');
+  };
+  const result = await applyReview(files.draft, { contractPath: files.contract, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(writes).toBe(1); expect(result.applied).toHaveLength(1); expect(result.audit.status).toBe('completed');
   await fs.rm(files.directory, { recursive: true, force: true });
 });

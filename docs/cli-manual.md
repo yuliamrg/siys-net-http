@@ -201,3 +201,8 @@ Validado en la interfaz el 20 de julio de 2026, sin efectuar cambios: abrir **Ma
 Los estados de orden observados y definidos por la app son Abierta (`1`), En ejecución (`2`), Finalizada (`3`), Pendiente por cotizar (`4`), Cotizada (`5`), Cerrada (`6`) y Anulada (`0`). El modal de **Editar orden** no mostró un selector de estado; por tanto, no se debe inferir una transición HTTP ni intentar llevar una orden de Finalizada a Cerrada hasta capturar el flujo autorizado que lo haga.
 
 Para generar el reporte de una orden: **Mantenimiento → Órdenes → Ver (ojo) → Mantenimientos → Imprimir**. SIYS prepara el reporte para la impresión del navegador; elegir “Guardar como PDF” en el cuadro de impresión. Antes de imprimir, comprobar que los mantenimientos que deben aparecer tengan activado “Mostrar en el reporte”.
+## Operaciones aprobadas sobre actividades e imágenes
+
+`siys order apply-review` acepta revisiones `1.1` para `addActivity`, `addImage`, `setImageVisibility` y `setActivityVisibility`, además de las ediciones de texto `1.0`. Todas requieren contrato privado, simulación, estado `approved`, `--confirm` y verificación posterior. Consultar [order-review-write-contract.md](order-review-write-contract.md) para el esquema completo.
+
+La reanudación de una ejecución parcial usa `--resume-audit <archivo>`. Las actividades o archivos creados no pueden ser referenciados por otra operación del mismo JSON: inspeccionar de nuevo y preparar la siguiente revisión.

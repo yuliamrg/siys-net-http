@@ -109,6 +109,7 @@ async function runOrderApplyReview(file: string, rawOptions: {
   contract?: string;
   outDir?: string;
   auditOutput?: string;
+  resumeAudit?: string;
   delayMs?: number;
   timeoutMs?: number;
   maxChanges?: number;
@@ -122,6 +123,7 @@ async function runOrderApplyReview(file: string, rawOptions: {
       confirm: rawOptions.confirm,
       autoLogin: !rawOptions.noAutoLogin,
       contractPath: rawOptions.contract,
+      resumeAuditPath: rawOptions.resumeAudit,
       delayMs: rawOptions.delayMs,
       timeoutMs: rawOptions.timeoutMs,
       maxChanges: rawOptions.maxChanges,
@@ -142,7 +144,7 @@ async function runOrderApplyReview(file: string, rawOptions: {
   }
   const output = rawOptions.auditOutput ?? applyAuditOutputPath(result.orderCode, rawOptions.outDir ?? exportsDir);
   await writeApplyAudit(output, result);
-  const summary = { dryRun: result.dryRun, orderCode: result.orderCode, planned: result.planned.length, applied: result.applied.length, alreadyApplied: result.alreadyApplied.length, audit: output };
+  const summary = { dryRun: result.dryRun, orderCode: result.orderCode, planned: result.planned.length, plannedWrites: result.plannedWrites, applied: result.applied.length, alreadyApplied: result.alreadyApplied.length, audit: output };
   if (rawOptions.json) console.log(JSON.stringify(summary, null, 2));
   else console.log(`${summary.dryRun ? 'Simulación' : 'Aplicación'} de orden ${summary.orderCode}: ${summary.applied}/${summary.planned} cambios; ${summary.alreadyApplied} ya aplicados. Auditoría: ${summary.audit}`);
 }
@@ -231,6 +233,7 @@ order.command('apply-review <file>')
   .option('--confirm', 'Autoriza escritura; sin esta opción solo simula.')
   .option('--out-dir <dir>', 'Carpeta para la auditoría.', 'exports')
   .option('--audit-output <file>', 'Archivo exacto para la auditoría JSON.')
+  .option('--resume-audit <file>', 'Retoma una ejecución parcial usando su auditoría; exige los mismos hashes de revisión y contrato.')
   .option('--delay-ms <number>', 'Espera entre escrituras, para no saturar SIYS.', parseNonNegativeInteger, 350)
   .option('--timeout-ms <number>', 'Tiempo máximo de una escritura; no se reintenta.', parsePositiveInteger, 15000)
   .option('--max-changes <number>', 'Máximo de cambios por ejecución; default: 20.', parsePositiveInteger, 20)

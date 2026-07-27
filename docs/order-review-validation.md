@@ -17,6 +17,12 @@ Esta bitácora conserva las pruebas ejecutadas contra SIYS el 20 de julio de 202
 - Reanudación: si la corrección propuesta ya está en SIYS, se registra como `alreadyApplied` sin enviar otra escritura.
 - Protección de colaboración: si existe una corrección distinta, el lote se detiene antes de escribir ese cambio.
 - Error HTTP 429: prueba automatizada confirma que no se reintenta una escritura y la excepción entrega la auditoría parcial con los cambios ya verificados.
+- Creación de actividad: `PATCH .../add-activity`, identificación inequívoca del nuevo ID y aplicación de nombre/descripción corregidos.
+- Carga de imagen: `POST /file` con base64 aprobado y SHA-256 verificado, seguida de asociación serial a la actividad.
+- Visibilidad de imagen: la revisión expresa `visible: true|false`; la CLI verifica pertenencia y usa el endpoint `toggle-hidden` solo cuando el estado actual difiere.
+- Visibilidad de actividad: `PUT ...?field=visible` con cuerpo booleano y verificación posterior.
+- Índices fotográficos: resolución por ID justo antes de escribir, incluso si la tarea o actividad no ocupa la primera posición.
+- Reanudación por auditoría: conserva IDs creados y continúa desde el último paso confirmado solo si coinciden los hashes de revisión y contrato.
 
 ## Política operativa resultante
 
