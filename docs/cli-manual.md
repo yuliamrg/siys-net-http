@@ -88,6 +88,24 @@ Cotizaciones por rango:
 siys download --module quotes --format xlsx --param inicio=2026-01-01T05:00:00.000Z --param fin=2026-06-30T23:59:59.000Z
 ```
 
+### Inspeccionar el interior de una cotización
+
+Para consultar una cotización completa, incluidos artículos, agrupadores, desgloses por categoría, precios unitarios, cantidades, subtotal, descuento, IVA, total e historial de estados:
+
+```powershell
+siys quote inspect C20260734 --output "$PWD\C20260734-detail.json" --json
+```
+
+El comando consulta primero el código en `/api/cotizacion` y luego el detalle en `/api/cotizacion/{_id}`. Si el código devuelve más de una coincidencia, usar el ID exacto:
+
+```powershell
+siys quote inspect C20260734 --quote-id <quote-id> --output "$PWD\C20260734-detail.json"
+```
+
+`download --module quotes` continúa siendo el mecanismo para listados y exportaciones masivas. `quote inspect` es el mecanismo recomendado cuando se necesita entender el contenido de una cotización individual. Ambos son de solo lectura y sanean campos sensibles embebidos en `creadoPor`.
+
+El esquema y las reglas de cálculo están en [Inspección interna de cotizaciones](quote-inspection.md).
+
 Equipos de un cliente especifico:
 
 ```powershell

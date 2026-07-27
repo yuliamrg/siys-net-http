@@ -27,6 +27,7 @@ La skill global `$siys-cli` documenta el uso operativo de este comando desde cua
 | [Seguridad y datos locales](docs/security-and-storage.md) | Manejo de credenciales, token, archivos temporales y carpetas no versionadas. |
 | [Comandos de diagnostico](docs/diagnostics.md) | Uso de `capture`, `explore` e `inventory` cuando sea necesario revisar SIYS. |
 | [Informe tecnico](docs/technical-findings.md) | Arquitectura observada, endpoints, autenticacion y hallazgos de exploracion. |
+| [Inspeccion interna de cotizaciones](docs/quote-inspection.md) | Articulos, desgloses, calculos, historial y saneamiento de cotizaciones. |
 | [Estructura del informe de orden](docs/order-report-structure.md) | Relacion entre la orden, mantenimientos, actividades, fotografias y el PDF de servicio. |
 | [Aplicación segura de revisiones](docs/order-review-write-contract.md) | Simulación, confirmación, contratos HTTP y auditoría para mejorar textos de órdenes. |
 
@@ -37,6 +38,7 @@ siys login
 siys download
 siys download --module orders,quotes --format json,csv --out-dir data
 siys download --module clients --format xlsx --output clientes.xlsx
+siys quote inspect C20260734 --output C20260734-detail.json --json
 ```
 
 ## Desarrollo

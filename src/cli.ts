@@ -10,6 +10,7 @@ import { exportsDir, storageStatePath } from './paths.js';
 import { buildOrderFilterParams } from './order-filters.js';
 import { analyzeImages } from './image-analysis.js';
 import { buildVisionReview } from './vision-review.js';
+import { inspectQuote, quoteInspectionOutputPath, writeQuoteInspection } from './quote-inspect.js';
 
 async function runLogin(): Promise<void> {
   const token = await loginDirect();
@@ -170,6 +171,30 @@ async function runOrderReviewImages(snapshot: string, rawOptions: { output?: str
   console.log(JSON.stringify({ orderCode: report.orderCode, evidence: report.evidence.length, analyses: report.analyses.length, analysisOutput, proposals: result.proposals, manual: result.manual, output }, null, 2));
 }
 
+async function runQuoteInspect(code: string, rawOptions: {
+  output?: string;
+  outDir?: string;
+  json?: boolean;
+  noAutoLogin?: boolean;
+  quoteId?: string;
+}): Promise<void> {
+  const inspection = await inspectQuote(code, { autoLogin: !rawOptions.noAutoLogin, quoteId: rawOptions.quoteId });
+  const output = rawOptions.output ?? quoteInspectionOutputPath(inspection.code, rawOptions.outDir ?? exportsDir);
+  await writeQuoteInspection(output, inspection);
+  const summary = {
+    code: inspection.code,
+    quoteId: inspection.quoteId,
+    items: inspection.quote.items.length,
+    billableItems: inspection.quote.items.filter((item) => item.kind === 'line').length,
+    subtotal: inspection.quote.totals.subtotal,
+    total: inspection.quote.totals.total,
+    warnings: inspection.quote.totals.warnings.length,
+    output,
+  };
+  if (rawOptions.json) console.log(JSON.stringify(summary, null, 2));
+  else console.log(`Inspeccionada la cotizacion ${summary.code}: ${summary.billableItems} lineas cobrables, subtotal ${summary.subtotal ?? 'no calculado'}, total ${summary.total ?? 'no calculado'}. Archivo: ${summary.output}`);
+}
+
 function addDownloadOptions(command: Command): Command {
   return command
     .option('-m, --module <module>', 'Modulo(s): all, orders, quotes, clients, equipment. Se puede repetir o separar por coma.', collect, [])
@@ -262,5 +287,15 @@ order.command('review-images <snapshot>')
   .option('--download-concurrency <n>', 'Descargas simultáneas de fotos; por defecto 6.', parsePositiveInteger)
   .option('--analysis-concurrency <n>', 'Análisis simultáneos; por defecto 2.', parsePositiveInteger)
   .action(runOrderReviewImages);
+
+const quote = program.command('quote').description('Consulta cotizaciones y su detalle en modo de solo lectura.');
+quote.command('inspect <code>')
+  .description('Exporta una cotizacion con articulos, desgloses, historial, calculos y datos saneados.')
+  .option('--quote-id <id>', 'ID exacto de la cotizacion cuando el codigo devuelve varias coincidencias.')
+  .option('-o, --output <file>', 'Archivo JSON de salida.')
+  .option('--out-dir <dir>', 'Carpeta destino cuando no se usa --output.', 'exports')
+  .option('--json', 'Imprime resumen JSON para integraciones.')
+  .option('--no-auto-login', 'No intenta login HTTP si falta o falla la sesion.')
+  .action(runQuoteInspect);
 
 await program.parseAsync();

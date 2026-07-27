@@ -49,10 +49,15 @@ Endpoints auxiliares observados: `/api/causa-raiz`, `/api/order-type`, `/api/cus
 
 - Método y ruta: `GET /api/cotizacion`.
 - Respuesta: arreglo JSON.
+- Detalle observado en la interfaz: `GET /api/cotizacion/{_id}`.
 - Filtros confirmados: `fullCode`, `fecha_busqueda`, `estado`, `cliente`, `sucursal`, `inicio` y `fin`.
 - `fecha_busqueda=1` corresponde a fecha de registro y `fecha_busqueda=0` a fecha de venta.
 - El consumidor usa por defecto fecha de registro desde el inicio del año hasta el momento de ejecución.
 - Campos principales observados: `_id`, `fullCode`, `codigo`, `code`, `titulo`, `unidad_negocio`, `estado`, `estados`, `articulos`, `spendPlan`, `modo`, `cliente`, `sucursal`, `obs`, `iva`, `descuento`, `tipo`, `fecha`, `anio`, `mes` y `creadoPor`.
+- `articulos[]` contiene agrupadores y líneas cobrables. Las líneas cobrables observadas incluyen `descripcion`, `unidad`, `cantidad`, `factorVenta` y componentes `equipos`, `materiales`, `contratista`, `mano_de_obra`, `transporte` y `viaticos`; cada componente puede incluir `valor` y `desglose[]`.
+- La interfaz calcula precio unitario, subtotal, descuento, IVA y total. El listado muestra el subtotal previo a descuento e IVA; la CLI normaliza estos importes con `siys quote inspect <codigo>`.
+- El detalle enriquece `estados[]` con el nombre del usuario y del estado. El estado vigente debe tomarse de `estado`, no del primer elemento del historial.
+- La respuesta puede incluir campos sensibles dentro de `creadoPor`, como credenciales o tokens. Las exportaciones de cotizaciones deben sanearlos antes de guardarse o compartirse.
 
 Endpoints auxiliares observados: `/api/cotizacion-estado`, `/api/cotizacion-unidad-negocio`, `/api/unidad-medida`, `/api/customer`, `/api/user` y `/api/marker`.
 

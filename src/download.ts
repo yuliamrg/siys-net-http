@@ -4,6 +4,7 @@ import { getAuthenticatedToken, loginDirect } from './auth.js';
 import { loadEndpointDefinitions } from './endpoints.js';
 import { exportRows } from './exporters.js';
 import { exportsDir } from './paths.js';
+import { redact } from './security.js';
 import { exportFormats, modules, type EndpointDefinition, type ExportFormat, type ModuleName } from './types.js';
 import { timestamp } from './utils.js';
 import type { QueryParams } from './order-filters.js';
@@ -23,6 +24,10 @@ export interface DownloadResult {
   format: ExportFormat;
   records: number;
   output: string;
+}
+
+export function sanitizeQuoteRecord(row: Record<string, unknown>): Record<string, unknown> {
+  return redact(row) as Record<string, unknown>;
 }
 
 export function parseParams(values: string[]): QueryParams {
@@ -141,7 +146,10 @@ async function fetchRows(
   const rows: Record<string, unknown>[] = [];
   for (const endpoint of selected) {
     const endpointRows = await fetchEndpoint(endpoint, { token, params, maxPages });
-    rows.push(...endpointRows.map((row) => ({ _endpoint: endpoint.path, ...row })));
+    rows.push(...endpointRows.map((row) => {
+      const record = { _endpoint: endpoint.path, ...row };
+      return module === 'quotes' ? sanitizeQuoteRecord(record) : record;
+    }));
   }
   return rows;
 }

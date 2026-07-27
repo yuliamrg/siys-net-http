@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { buildDownloadOptions, defaultParams, outputPathFor, parseFormats, parseModules } from '../src/download.js';
+import { buildDownloadOptions, defaultParams, outputPathFor, parseFormats, parseModules, sanitizeQuoteRecord } from '../src/download.js';
 
 test('parses repeated and comma-separated modules', () => {
   expect(parseModules(['orders,quotes', 'clients'])).toEqual(['orders', 'quotes', 'clients']);
@@ -27,4 +27,10 @@ test('uses the current year as the default orders date range', () => {
   const year = today.slice(0, 4);
 
   expect(defaultParams('orders')).toEqual({ start: `${year}-01-01`, end: today });
+});
+
+test('sanitizes secrets embedded in quote creator data before export', () => {
+  expect(sanitizeQuoteRecord({ creadoPor: { name: 'Coordinador', password: 'hash', pushToken: 'token' } })).toEqual({
+    creadoPor: { name: 'Coordinador', password: '[REDACTED]', pushToken: '[REDACTED]' },
+  });
 });
