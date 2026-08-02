@@ -17,6 +17,16 @@ siys download --module all --format xlsx --out-dir exports
 
 La skill global `$siys-cli` documenta el uso operativo de este comando desde cualquier carpeta, incluidos filtros, inspección de órdenes y la integración con `$mejorar-ordenes-siys-net`.
 
+Las ordenes, snapshots, evidencias, revisiones y auditorias se guardan fuera del repositorio, exclusivamente en `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys`.
+
+Las exportaciones son salidas generadas y temporales. Para mantener limpio el proyecto, usa preferiblemente una carpeta temporal fuera del repositorio:
+
+```powershell
+siys download --module all --format xlsx --out-dir "$env:TEMP\siys-net-http-exports"
+```
+
+Si se usa `exports/` dentro del proyecto, esa carpeta debe permanecer ignorada y nunca versionarse.
+
 ## Documentacion
 
 | Documento | Para que sirve |

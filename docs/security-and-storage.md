@@ -12,8 +12,19 @@ La CLI trabaja con informacion sensible. Estas reglas evitan subir credenciales,
 | `private/captures/` | Capturas privadas de exploracion. | No |
 | `private/responses/` | Respuestas privadas de API. | No |
 | `exports/` | Datos descargados de SIYS. | No |
+| `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys\` | Snapshots, evidencia, revisiones y auditorias de ordenes. | No |
 
 Estas rutas estan cubiertas por `.gitignore`.
+
+## Biblioteca de ordenes
+
+El proyecto no conserva carpetas de ordenes. Las ordenes y sus artefactos deben guardarse exclusivamente en:
+
+```text
+C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys
+```
+
+No crear nuevas carpetas de ordenes dentro del repositorio. Al inspeccionar o mejorar una orden, usar una subcarpeta identificada por codigo, sede y fecha dentro de la biblioteca de OneDrive.
 
 ## Credenciales
 
@@ -52,10 +63,12 @@ Durante navegacion de diagnostico, el proyecto bloquea metodos potencialmente mu
 
 ## Exportaciones
 
-Los archivos exportados pueden contener informacion de negocio. Guardalos en una carpeta controlada y no los subas al repositorio.
+Los archivos exportados pueden contener informacion de negocio. Son salidas generadas y temporales: guardalos preferiblemente fuera del repositorio y no los subas a Git.
 
-Ejemplo:
+Ejemplo recomendado:
 
 ```powershell
-siys download --module all --format xlsx --out-dir exports
+siys download --module all --format xlsx --out-dir "$env:TEMP\siys-net-http-exports"
 ```
+
+Si se usa `exports/` dentro del proyecto, esa carpeta esta ignorada y nunca debe versionarse. Las ordenes, snapshots, evidencias, revisiones y auditorias no son exportaciones temporales: deben guardarse exclusivamente en `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys`.

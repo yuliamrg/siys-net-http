@@ -35,7 +35,7 @@ No usar `git reset --hard` ni `git checkout --` sobre un árbol compartido: pued
 
 ## Qué no se versiona
 
-`.env`, `private/`, `.playwright-cli/` y `.wacli/` pueden contener credenciales o sesiones. Los snapshots y PDFs operativos deben quedar en las carpetas privadas o de artefactos definidas por el equipo, no en commits de código.
+`.env`, `private/`, `.playwright-cli/` y `.wacli/` pueden contener credenciales o sesiones. Los snapshots, evidencias, revisiones y auditorías de órdenes deben quedar en `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys`, no en el repositorio ni en commits de código.
 
 ## Skills globales
 
