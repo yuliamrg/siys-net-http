@@ -11,6 +11,7 @@ import { buildOrderFilterParams } from './order-filters.js';
 import { analyzeImages } from './image-analysis.js';
 import { buildVisionReview } from './vision-review.js';
 import { inspectQuote, quoteInspectionOutputPath, writeQuoteInspection } from './quote-inspect.js';
+import { executeOrderCreate, orderCreateAuditOutputPath, orderCreateExecutionState, orderCreateSimulationOutputPath, writeOrderCreateAudit, writeOrderCreateSimulation } from './order-create.js';
 
 async function runLogin(): Promise<void> {
   const token = await loginDirect();
@@ -162,6 +163,59 @@ async function runOrderBuildVisionReview(snapshot: string, manifest: string, raw
   console.log(JSON.stringify({ ...result, output }, null, 2));
 }
 
+async function runOrderCreate(file: string, rawOptions: {
+  confirm?: boolean;
+  contract?: string;
+  timeoutMs?: number;
+  auditOutput?: string;
+  output?: string;
+  outDir?: string;
+  json?: boolean;
+  noAutoLogin?: boolean;
+}): Promise<void> {
+  const auditOutput = rawOptions.auditOutput ?? orderCreateAuditOutputPath(rawOptions.outDir ?? exportsDir);
+  let execution;
+  try {
+    execution = await executeOrderCreate(file, {
+      confirm: rawOptions.confirm,
+      contractPath: rawOptions.contract,
+      timeoutMs: rawOptions.timeoutMs,
+      autoLogin: !rawOptions.noAutoLogin,
+      onProgress: rawOptions.confirm ? async (audit) => writeOrderCreateAudit(auditOutput, audit) : undefined,
+    });
+  } catch (error) {
+    const partial = error && typeof error === 'object' ? (error as { orderCreateAudit?: Parameters<typeof writeOrderCreateAudit>[1] }).orderCreateAudit : undefined;
+    if (partial) {
+      try { await writeOrderCreateAudit(auditOutput, partial); } catch { /* The original error remains authoritative. */ }
+      throw new Error(`${error instanceof Error ? error.message : String(error)} Auditoría: ${auditOutput}`);
+    }
+    throw error;
+  }
+  const simulation = execution.dryRun ? execution : execution.simulation;
+  const executionState = orderCreateExecutionState(execution);
+  const output = rawOptions.output ?? orderCreateSimulationOutputPath(rawOptions.outDir ?? exportsDir);
+  await writeOrderCreateSimulation(output, simulation);
+  const summary = {
+    dryRun: executionState.dryRun,
+    ready: simulation.validation.ready,
+    blockers: simulation.validation.blockers,
+    customer: simulation.resolved.customer,
+    subsidiary: simulation.resolved.subsidiary,
+    orderType: simulation.resolved.orderType,
+    equipments: simulation.resolved.equipments.length,
+    technicians: simulation.resolved.technicians.length,
+    schedules: simulation.availability.length,
+    siysWritesAttempted: executionState.siysWritesAttempted,
+    auditStatus: executionState.auditStatus,
+    created: executionState.created,
+    audit: execution.dryRun ? undefined : auditOutput,
+    verification: execution.dryRun ? undefined : execution.audit.verification,
+    output,
+  };
+  if (rawOptions.json) console.log(JSON.stringify(summary, null, 2));
+  else console.log(`${execution.dryRun ? 'Simulacion' : 'Creacion enviada'}: ${summary.ready ? 'lista' : 'bloqueada'}, ${summary.equipments} equipos, ${summary.technicians} tecnicos, ${summary.schedules} horarios, ${summary.siysWritesAttempted} escritura(s) en SIYS. Archivo: ${summary.output}`);
+}
+
 async function runOrderReviewImages(snapshot: string, rawOptions: { output?: string; analysisOutput?: string; model?: string; guidesDir?: string; downloadConcurrency?: number; analysisConcurrency?: number }): Promise<void> {
   const stem = path.basename(snapshot, path.extname(snapshot));
   const analysisOutput = rawOptions.analysisOutput ?? path.join('private', 'image-analysis', `analysis-${stem}.json`);
@@ -243,7 +297,18 @@ addDownloadOptions(program.command('export').description('Alias compatible de do
 program.command('capture').description('Abre Chromium para captura asistida y guarda la sesion local.').action(runCapture);
 program.command('explore').description('Recorre en modo lectura los cuatro modulos autorizados.').action(runExplore);
 program.command('inventory').description('Genera inventario sanitizado y candidatos de endpoints.').action(runInventory);
-const order = program.command('order').description('Inspecciona o aplica una revisión aprobada de una orden.');
+const order = program.command('order').description('Inspecciona, simula la creacion o aplica una revision aprobada de una orden.');
+order.command('create <file>')
+  .description('Valida y simula una orden manual; solo escribe con aprobación, contrato y --confirm.')
+  .option('--confirm', 'Autoriza un único POST después de repetir toda la prevalidación.')
+  .option('--contract <file>', 'Contrato privado que debe autorizar exactamente POST /order.')
+  .option('--timeout-ms <number>', 'Tiempo máximo del POST; nunca se reintenta.', parsePositiveInteger, 15000)
+  .option('--audit-output <file>', 'Archivo JSON de auditoría para una ejecución confirmada.')
+  .option('-o, --output <file>', 'Archivo JSON con el resultado completo de la simulacion.')
+  .option('--out-dir <dir>', 'Carpeta destino cuando no se usa --output.', 'exports')
+  .option('--json', 'Imprime el resumen de la simulacion en JSON.')
+  .option('--no-auto-login', 'No intenta login HTTP si falta o falla la sesion.')
+  .action(runOrderCreate);
 order.command('inspect <code>')
   .description('Exporta orden, mantenimientos, actividades, archivos y entrega en un JSON sin descargar imagenes.')
   .option('--order-id <id>', 'ID exacto de la orden, obligatorio cuando el código histórico tiene coincidencias.')

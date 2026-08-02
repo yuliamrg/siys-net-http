@@ -197,6 +197,17 @@ Si un código histórico tiene más de una coincidencia, identifica primero el I
 siys order inspect 000462 --order-id 6a3ef87eb02db19c4480f820 --output orden-000462.json --json
 ```
 
+## Crear una orden manual
+
+`order create` prepara y, solo tras autorización explícita, crea una orden manual nueva. No acepta planes, periodos ni tareas derivadas. Primero consultar la Base Operativa y los catálogos de cliente/sede para resolver IDs; después simular y mostrar el payload.
+
+```powershell
+siys order create solicitud.json --output exports\order-create-simulation.json --json
+siys order create solicitud-approved.json --contract private\order-create-contract.json --confirm --audit-output exports\order-create-audit.json --json
+```
+
+La ejecución confirmada exige `status: "approved"`, contrato privado exacto `POST /order`, `--confirm`, recibo anti-replay, auditoría y verificación posterior por el ID devuelto. Ante `ambiguous` o `verification_failed`, conservar la auditoría, inspeccionar la orden y no repetir automáticamente. El procedimiento completo está en [Creación manual de órdenes](order-create.md).
+
 ## Aplicar una revisión aprobada
 
 `order apply-review` permite aplicar textos ya revisados sin usar Excel. Se limita a editar observaciones/estado del mantenimiento, nombre de tarea y nombre o respuesta de actividades existentes. No crea ni elimina elementos y exige un contrato local de endpoints validado contra la app.

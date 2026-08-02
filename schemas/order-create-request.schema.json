@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siys.local/schemas/order-create-request.schema.json",
+  "title": "Solicitud de creación manual de orden SIYS",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "mode",
+    "customerId",
+    "subsidiaryId",
+    "orderTypeId",
+    "material",
+    "observations",
+    "equipmentIds",
+    "schedule",
+    "timeZone"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "status": { "enum": ["draft", "approved"] },
+    "mode": { "const": "manual" },
+    "customerId": { "type": "string", "minLength": 1 },
+    "subsidiaryId": { "type": "string", "minLength": 1 },
+    "orderTypeId": { "type": "string", "minLength": 1 },
+    "material": { "type": "string", "minLength": 1 },
+    "observations": { "type": "string", "minLength": 1 },
+    "equipmentIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "schedule": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["startLocal", "endLocal", "technicianId"],
+        "properties": {
+          "startLocal": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00$" },
+          "endLocal": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00$" },
+          "technicianId": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "timeZone": { "const": "America/Bogota" },
+    "allowNoEquipment": { "const": true }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "allowNoEquipment": { "const": true } }, "required": ["allowNoEquipment"] },
+      "then": {},
+      "else": { "properties": { "equipmentIds": { "minItems": 1 } } }
+    }
+  ]
+}

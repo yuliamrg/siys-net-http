@@ -10,6 +10,8 @@ Lee los documentos segun la necesidad:
 | Entender credenciales y archivos locales | [security-and-storage.md](security-and-storage.md) |
 | Diagnosticar cambios de SIYS | [diagnostics.md](diagnostics.md) |
 | Revisar hallazgos tecnicos | [technical-findings.md](technical-findings.md) |
+| Investigar y diseñar la creación segura de órdenes | [order-creation-research.md](order-creation-research.md) |
+| Crear una orden manual con simulación y confirmación segura | [order-create.md](order-create.md) |
 | Entender como se construye el PDF de una orden | [order-report-structure.md](order-report-structure.md) |
 
 Ruta recomendada para un usuario nuevo:

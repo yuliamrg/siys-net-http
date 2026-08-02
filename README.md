@@ -27,6 +27,8 @@ La skill global `$siys-cli` documenta el uso operativo de este comando desde cua
 | [Seguridad y datos locales](docs/security-and-storage.md) | Manejo de credenciales, token, archivos temporales y carpetas no versionadas. |
 | [Comandos de diagnostico](docs/diagnostics.md) | Uso de `capture`, `explore` e `inventory` cuando sea necesario revisar SIYS. |
 | [Informe tecnico](docs/technical-findings.md) | Arquitectura observada, endpoints, autenticacion y hallazgos de exploracion. |
+| [Investigación para crear órdenes](docs/order-creation-research.md) | Contrato HTTP observado, validaciones, riesgos y diseño propuesto para `order create`. |
+| [Creación manual segura de órdenes](docs/order-create.md) | Esquema, simulación, contrato, confirmación, auditoría y verificación de `order create`. |
 | [Inspeccion interna de cotizaciones](docs/quote-inspection.md) | Articulos, desgloses, calculos, historial y saneamiento de cotizaciones. |
 | [Estructura del informe de orden](docs/order-report-structure.md) | Relacion entre la orden, mantenimientos, actividades, fotografias y el PDF de servicio. |
 | [Aplicación segura de revisiones](docs/order-review-write-contract.md) | Simulación, confirmación, contratos HTTP y auditoría para mejorar textos de órdenes. |
