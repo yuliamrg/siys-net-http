@@ -17,6 +17,7 @@ export interface DownloadOptions {
   outDir: string;
   output?: string;
   autoLogin: boolean;
+  allowPartial: boolean;
 }
 
 export interface DownloadResult {
@@ -24,6 +25,16 @@ export interface DownloadResult {
   format: ExportFormat;
   records: number;
   output: string;
+  pagesFetched: number;
+  totalAvailable?: number;
+  truncated: boolean;
+}
+
+interface FetchRowsResult {
+  rows: Record<string, unknown>[];
+  pagesFetched: number;
+  totalAvailable?: number;
+  truncated: boolean;
 }
 
 export function sanitizeQuoteRecord(row: Record<string, unknown>): Record<string, unknown> {
@@ -82,6 +93,7 @@ export function buildDownloadOptions(options: {
   outDir?: string;
   output?: string;
   autoLogin?: boolean;
+  allowPartial?: boolean;
 }): DownloadOptions {
   const selectedModules = parseModules(options.module ?? []);
   const selectedFormats = parseFormats(options.format ?? []);
@@ -99,7 +111,14 @@ export function buildDownloadOptions(options: {
     outDir: options.outDir ?? exportsDir,
     output: options.output,
     autoLogin: options.autoLogin ?? true,
+    allowPartial: options.allowPartial ?? false,
   };
+}
+
+function rejectTruncation(result: FetchRowsResult, allowPartial: boolean, context: string): void {
+  if (result.truncated && !allowPartial) {
+    throw new Error(`La descarga de ${context} puede estar truncada por --max-pages. Aumenta el límite o usa --allow-partial de forma explícita.`);
+  }
 }
 
 async function fetchAllEquipment(
@@ -107,22 +126,38 @@ async function fetchAllEquipment(
   clients: EndpointDefinition,
   token: string,
   maxPages: number,
-): Promise<Record<string, unknown>[]> {
-  const customerRows = await fetchEndpoint(clients, { token, params: {}, maxPages: 1 });
+  allowPartial: boolean,
+): Promise<FetchRowsResult> {
+  const customers = await fetchEndpoint(clients, { token, params: {}, maxPages });
+  rejectTruncation(customers, allowPartial, 'clientes necesarios para equipos');
+  const customerRows = customers.rows;
   const output: Record<string, unknown>[] = [];
+  let pagesFetched = customers.pagesFetched;
+  let totalAvailable = 0;
+  let hasTotals = true;
+  let truncated = customers.truncated;
   const batchSize = 5;
   for (let index = 0; index < customerRows.length; index += batchSize) {
     const batch = customerRows.slice(index, index + batchSize);
     const results = await Promise.all(batch.map(async (customer) => {
       const id = customer._id;
-      if (typeof id !== 'string') return [];
-      const rows = await fetchEndpoint(equipment, { token, params: { customer: id }, maxPages });
-      return rows.map((row) => ({ _customerId: id, ...row }));
+      if (typeof id !== 'string') return { rows: [], pagesFetched: 0, truncated: false };
+      const result = await fetchEndpoint(equipment, { token, params: { customer: id }, maxPages });
+      rejectTruncation(result, allowPartial, `equipos del cliente ${id}`);
+      return result;
     }));
-    output.push(...results.flat());
+    for (let offset = 0; offset < results.length; offset += 1) {
+      const result = results[offset];
+      const customerId = String(batch[offset]._id ?? '');
+      output.push(...result.rows.map((row) => ({ _customerId: customerId, ...row })));
+      pagesFetched += result.pagesFetched;
+      truncated ||= result.truncated;
+      if (result.totalAvailable === undefined) hasTotals = false;
+      else totalAvailable += result.totalAvailable;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  return output;
+  return { rows: output, pagesFetched, totalAvailable: hasTotals ? totalAvailable : undefined, truncated };
 }
 
 function isAuthError(error: unknown): boolean {
@@ -135,23 +170,33 @@ async function fetchRows(
   token: string,
   params: QueryParams,
   maxPages: number,
-): Promise<Record<string, unknown>[]> {
+  allowPartial: boolean,
+): Promise<FetchRowsResult> {
   const selected = definitions.filter((definition) => definition.module === module);
   if (selected.length === 0) throw new Error(`No hay endpoint definido para ${module}.`);
   if (module === 'equipment' && typeof params.customer !== 'string') {
     const clients = definitions.find((definition) => definition.module === 'clients');
     if (!clients) throw new Error('No existe la definicion del endpoint de clientes.');
-    return fetchAllEquipment(selected[0], clients, token, maxPages);
+    return fetchAllEquipment(selected[0], clients, token, maxPages, allowPartial);
   }
   const rows: Record<string, unknown>[] = [];
+  let pagesFetched = 0;
+  let totalAvailable = 0;
+  let hasTotals = true;
+  let truncated = false;
   for (const endpoint of selected) {
-    const endpointRows = await fetchEndpoint(endpoint, { token, params, maxPages });
-    rows.push(...endpointRows.map((row) => {
+    const endpointResult = await fetchEndpoint(endpoint, { token, params, maxPages });
+    rejectTruncation(endpointResult, allowPartial, module);
+    pagesFetched += endpointResult.pagesFetched;
+    truncated ||= endpointResult.truncated;
+    if (endpointResult.totalAvailable === undefined) hasTotals = false;
+    else totalAvailable += endpointResult.totalAvailable;
+    rows.push(...endpointResult.rows.map((row) => {
       const record = { _endpoint: endpoint.path, ...row };
       return module === 'quotes' ? sanitizeQuoteRecord(record) : record;
     }));
   }
-  return rows;
+  return { rows, pagesFetched, totalAvailable: hasTotals ? totalAvailable : undefined, truncated };
 }
 
 export function outputPathFor(module: ModuleName, format: ExportFormat, options: DownloadOptions, stamp = timestamp()): string {
@@ -166,19 +211,19 @@ export async function downloadData(options: DownloadOptions): Promise<DownloadRe
 
   for (const module of options.modules) {
     const params = { ...defaultParams(module), ...options.params };
-    let rows: Record<string, unknown>[];
+    let fetched: FetchRowsResult;
     try {
-      rows = await fetchRows(module, definitions, token, params, options.maxPages);
+      fetched = await fetchRows(module, definitions, token, params, options.maxPages, options.allowPartial);
     } catch (error) {
       if (!options.autoLogin || !isAuthError(error)) throw error;
       token = await loginDirect();
-      rows = await fetchRows(module, definitions, token, params, options.maxPages);
+      fetched = await fetchRows(module, definitions, token, params, options.maxPages, options.allowPartial);
     }
 
     for (const format of options.formats) {
       const output = outputPathFor(module, format, options, stamp);
-      await exportRows(rows, format, output);
-      results.push({ module, format, records: rows.length, output });
+      await exportRows(fetched.rows, format, output);
+      results.push({ module, format, records: fetched.rows.length, output, pagesFetched: fetched.pagesFetched, totalAvailable: fetched.totalAvailable, truncated: fetched.truncated });
     }
   }
   return results;

@@ -5,6 +5,7 @@ import { fetchApiJson, sendApiJson } from './api.js';
 import { getAuthenticatedToken, loginDirect } from './auth.js';
 import { privateDir } from './paths.js';
 import { ensureDir, timestamp } from './utils.js';
+import { CliError } from './errors.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -504,7 +505,7 @@ export async function executeOrderCreate(file: string, options: ExecuteOrderCrea
     response = await sendApiJson<unknown>(contract.path, token, contract.method, simulation.payload, options.timeoutMs);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    audit.status = /^\d{3}\s/.test(message) ? 'failed' : 'ambiguous';
+    audit.status = /\bHTTP \d{3}\b|^\d{3}\s/.test(message) ? 'failed' : 'ambiguous';
     audit.updatedAt = new Date().toISOString();
     audit.attempt.finishedAt = audit.updatedAt;
     audit.attempt.error = message;
@@ -552,6 +553,11 @@ export async function executeOrderCreate(file: string, options: ExecuteOrderCrea
   }
   try { await options.onProgress?.(audit); } catch (error) {
     const wrapped = new Error(`La orden fue enviada, pero no se pudo guardar su verificación: ${error instanceof Error ? error.message : String(error)}. No reintentar.`) as Error & { orderCreateAudit?: OrderCreateAudit };
+    wrapped.orderCreateAudit = audit;
+    throw wrapped;
+  }
+  if (audit.status === 'verification_failed') {
+    const wrapped = new CliError('SIYS recibió la creación, pero la verificación posterior falló. No reintentar automáticamente.', 'safety', 'verification_failed', 'order create') as CliError & { orderCreateAudit?: OrderCreateAudit };
     wrapped.orderCreateAudit = audit;
     throw wrapped;
   }

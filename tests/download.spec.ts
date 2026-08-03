@@ -29,6 +29,11 @@ test('uses the current year as the default orders date range', () => {
   expect(defaultParams('orders')).toEqual({ start: `${year}-01-01`, end: today });
 });
 
+test('requires explicit opt-in for partial downloads', () => {
+  expect(buildDownloadOptions({ module: ['orders'] }).allowPartial).toBe(false);
+  expect(buildDownloadOptions({ module: ['orders'], allowPartial: true }).allowPartial).toBe(true);
+});
+
 test('sanitizes secrets embedded in quote creator data before export', () => {
   expect(sanitizeQuoteRecord({ creadoPor: { name: 'Coordinador', password: 'hash', pushToken: 'token' } })).toEqual({
     creadoPor: { name: 'Coordinador', password: '[REDACTED]', pushToken: '[REDACTED]' },

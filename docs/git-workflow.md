@@ -6,7 +6,7 @@ El proyecto ya está versionado. Git conserva el código, las guías y la docume
 
 ```powershell
 git status --short
-git switch -c codex/<cambio-corto>
+git switch -c agent/<cambio-corto>
 ```
 
 No mezclar cambios ajenos que ya aparezcan en `git status`. Cada cambio funcional debe incluir su prueba o una verificación reproducible.

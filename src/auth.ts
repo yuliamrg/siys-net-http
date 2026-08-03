@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
-import { BASE_URL, LOGIN_URL } from './config.js';
+import { BASE_URL, HTTP_TIMEOUT_MS, LOGIN_URL } from './config.js';
 import { ensureDir } from './utils.js';
 import { privateDir, storageStatePath } from './paths.js';
+import { requestHttp } from './http.js';
+import { CliError } from './errors.js';
 
 interface StorageState {
   cookies?: unknown[];
@@ -60,13 +62,14 @@ export async function loginDirect(): Promise<string> {
   const password = process.env.SIYS_PASSWORD;
   if (!email || !password) throw new Error('Define SIYS_EMAIL y SIYS_PASSWORD en .env para login HTTP directo.');
 
-  const response = await fetch(LOGIN_URL, {
+  const response = await requestHttp(LOGIN_URL, {
     method: 'POST',
     headers: { accept: 'application/json, text/plain, */*', 'content-type': 'application/json' },
     body: JSON.stringify({ email, password }),
+    timeoutMs: HTTP_TIMEOUT_MS,
+    operation: 'login SIYS',
   });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Login rechazado por SIYS: HTTP ${response.status}.`);
+  const text = response.text;
 
   let parsed: unknown;
   try {
@@ -75,7 +78,7 @@ export async function loginDirect(): Promise<string> {
     parsed = text.trim();
   }
   const token = tokenFromLoginResponse(parsed);
-  if (!token || token.split('.').length !== 3) throw new Error('Login exitoso, pero la respuesta no contiene un JWT reconocible.');
+  if (!token || token.split('.').length !== 3) throw new CliError('Login exitoso, pero la respuesta no contiene un JWT reconocible.', 'auth', 'invalid_login_response', 'login SIYS', response.requestId);
   await saveToken(token);
   return token;
 }

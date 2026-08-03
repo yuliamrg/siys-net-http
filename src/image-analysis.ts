@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { IMAGE_TIMEOUT_MS, OPENAI_TIMEOUT_MS } from './config.js';
+import { requestHttp, parseJsonResponse } from './http.js';
 
 type RecordValue = Record<string, unknown>;
 
@@ -54,9 +56,8 @@ function guideName(type: string, equipmentName: string): string {
 }
 
 async function download(url: string, target: string): Promise<{ sha256: string }> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`No se pudo descargar ${url}: HTTP ${response.status}`);
-  const body = Buffer.from(await response.arrayBuffer());
+  const response = await requestHttp(url, { method: 'GET', timeoutMs: IMAGE_TIMEOUT_MS, operation: 'descarga de evidencia visual', responseType: 'binary' });
+  const body = Buffer.from(response.bytes ?? []);
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, body);
   return { sha256: crypto.createHash('sha256').update(body).digest('hex') };
@@ -94,7 +95,7 @@ async function analyzeWithOpenAI(evidence: ImageEvidence[], guide: string, model
   // The CDN links were already fetched and hashed locally. Passing their URLs avoids
   // re-uploading large base64 payloads while retaining immutable local evidence.
   for (const image of evidence) content.push({ type: 'input_image', image_url: image.imageUrl, detail: 'high' });
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await requestHttp('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
     body: JSON.stringify({ model, store: false, text: { format: { type: 'json_schema', name: 'hvac_visual_evidence', strict: true, schema: {
@@ -104,9 +105,10 @@ async function analyzeWithOpenAI(evidence: ImageEvidence[], guide: string, model
         confidence: { type: 'string', enum: ['high', 'medium', 'low'] }, proposed_facts: { type: 'array', items: { type: 'string' } }, proposed_description: { type: 'string' },
       },
     } } }, input: [{ role: 'user', content }] }),
+    timeoutMs: OPENAI_TIMEOUT_MS,
+    operation: 'análisis visual OpenAI',
   });
-  if (!response.ok) throw new Error(`Análisis visual rechazado: HTTP ${response.status} ${await response.text()}`);
-  const result = await response.json();
+  const result = parseJsonResponse<unknown>(response, 'análisis visual OpenAI');
   const output = responseText(result);
   return parseAnalysis(output);
 }

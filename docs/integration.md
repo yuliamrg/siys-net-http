@@ -19,7 +19,10 @@ Salida esperada:
       "module": "clients",
       "format": "json",
       "records": 86,
-      "output": "data\\clients-2026-06-16T03-15-23-225Z.json"
+      "output": "data\\clients-2026-06-16T03-15-23-225Z.json",
+      "pagesFetched": 1,
+      "totalAvailable": 86,
+      "truncated": false
     }
   ]
 }
@@ -33,6 +36,9 @@ Cada elemento de `results` indica:
 | `format` | Formato generado. |
 | `records` | Cantidad de registros exportados. |
 | `output` | Ruta del archivo generado. |
+| `pagesFetched` | Cantidad de páginas consultadas. |
+| `totalAvailable` | Total informado por SIYS, cuando el endpoint lo proporciona. |
+| `truncated` | `true` únicamente cuando se autorizó una salida parcial. |
 
 ## Ejemplo Desde Node.js
 
@@ -66,8 +72,18 @@ $result.results[0].output
 
 ## Codigos de Salida
 
-- `0`: descarga exitosa.
-- Distinto de `0`: error de parametros, autenticacion, red o escritura de archivo.
+| Código | Categoría |
+| --- | --- |
+| `0` | Éxito. |
+| `1` | Error interno inesperado. |
+| `2` | Uso, entrada o configuración inválida. |
+| `3` | Autenticación o autorización. |
+| `4` | Red, timeout, HTTP o respuesta externa. |
+| `5` | Lectura, escritura o almacenamiento local. |
+| `6` | Conflicto, resultado ambiguo o verificación de seguridad fallida. |
+| `130` | Cancelación con `Ctrl+C`. |
+
+Con `--json`, un error produce un único objeto JSON en `stderr` con `code`, `category`, `message`, `operation`, `requestId` y `retryable`; `stdout` queda vacío.
 
 Cuando se use desde otra aplicacion, captura `stderr` y el codigo de salida para registrar errores.
 
