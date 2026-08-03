@@ -10,7 +10,7 @@ export function parseJsonBytes<T>(bytes: Uint8Array, label: string): T {
   try {
     return JSON.parse(text) as T;
   } catch (error) {
-    throw new Error(`${label} no es JSON válido: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${label} no es JSON válido: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
 

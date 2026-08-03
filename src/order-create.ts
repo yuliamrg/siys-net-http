@@ -341,7 +341,7 @@ async function readRequestSource(file: string): Promise<{ request: OrderCreateRe
 async function readCreateContract(file: string): Promise<{ file: string; sha256: string; method: 'POST'; path: '/order' }> {
   const bytes = await fs.readFile(file);
   let raw: JsonRecord;
-  try { raw = record(parseJsonBytes<unknown>(bytes, 'El contrato'), 'El contrato'); } catch (error) { throw new Error(`No se pudo leer el contrato ${file}: ${error instanceof Error ? error.message : String(error)}`); }
+  try { raw = record(parseJsonBytes<unknown>(bytes, 'El contrato'), 'El contrato'); } catch (error) { throw new Error(`No se pudo leer el contrato ${file}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
   exactKeys(raw, new Set(['schemaVersion', 'enabled', 'operation']), 'El contrato');
   if (raw.schemaVersion !== '1.0' || raw.enabled !== true) throw new Error('El contrato debe declarar schemaVersion "1.0" y enabled: true.');
   const operation = record(raw.operation, 'operation del contrato');
@@ -367,7 +367,7 @@ async function reserveReceipt(file: string, receipt: OrderCreateReceipt): Promis
         const value = record(JSON.parse(await fs.readFile(file, 'utf8')), 'recibo existente');
         previous = `${String(value.status ?? 'desconocido')}${value.orderCode ? `, orden ${String(value.orderCode)}` : ''}`;
       } catch { /* The existing file itself is enough to block a replay. */ }
-      throw new Error(`La solicitud aprobada ya tiene un recibo de ejecución (${previous}) en ${file}. No se permite repetir el POST.`);
+      throw new Error(`La solicitud aprobada ya tiene un recibo de ejecución (${previous}) en ${file}. No se permite repetir el POST.`, { cause: error });
     }
     throw error;
   } finally {

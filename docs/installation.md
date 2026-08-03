@@ -4,12 +4,14 @@ Esta guia deja la CLI `siys` lista para usarse desde la terminal o desde otras a
 
 ## Requisitos
 
-- Node.js compatible con el proyecto.
+- Node.js 20.19.0 o posterior.
 - npm.
 - Acceso autorizado a SIYS.
 - Credenciales validas de SIYS o un token autorizado.
 
 ## Instalacion Desde GitHub
+
+Las versiones se publican como GitHub Releases con el código fuente. El paquete conserva `private: true` y no se publica en npm.
 
 ```powershell
 git clone https://github.com/yuliamrg/siys-net-http.git
@@ -23,9 +25,35 @@ Verifica que el comando quedo disponible:
 
 ```powershell
 siys --help
+siys --version
 ```
 
 Después de `npm link`, `siys` se puede ejecutar desde cualquier carpeta. Al modificar la CLI, volver a ejecutar `npm run build`; el enlace no necesita recrearse mientras el nombre del binario no cambie.
+
+## Actualización
+
+Con el árbol de trabajo limpio:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+npm ci
+npm run check
+npm link
+siys --version
+```
+
+`npm link` puede repetirse de forma segura para asegurar que el comando global apunte a este checkout.
+
+## Desinstalación
+
+Desde el repositorio:
+
+```powershell
+npm unlink --global siys-explorer
+```
+
+Esto elimina el enlace global; no borra el repositorio, `.env`, sesiones ni datos operativos.
 
 ## Uso Sin `npm link`
 
@@ -77,4 +105,6 @@ La sesión guardada se reutiliza en cada ejecución; no se inicia sesión de nue
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm run check
 ```

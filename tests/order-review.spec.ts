@@ -57,7 +57,7 @@ test('dry-run reads and detects changes without sending mutations', async () => 
 
 test('requires approval and verifies every serialized update', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  const files = await fixtureFiles('approved'); let state = maintenance() as Record<string, any>; const calls: Array<{ method?: string; url: string; body?: string }> = [];
+  const files = await fixtureFiles('approved'); const state = maintenance() as Record<string, any>; const calls: Array<{ method?: string; url: string; body?: string }> = [];
   global.fetch = async (input, init) => {
     const url = String(input); calls.push({ method: init?.method, url, body: init?.body as string | undefined });
     if (init?.method === 'GET') return response(state);
@@ -81,7 +81,7 @@ test('applies a captured equipment state with the maintenance PATCH contract', a
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const files = await fixtureFiles('approved'); const draft = JSON.parse(await fs.readFile(files.draft, 'utf8'));
   draft.reviews[0].original = { equipmentState: 2 }; draft.reviews[0].proposed = { equipmentState: 3 }; draft.reviews[0].tasks = []; draft.reviews[0].activities = [];
-  await fs.writeFile(files.draft, JSON.stringify(draft), 'utf8'); let state: any = maintenance(); state.equipmentState = 2; const writes: string[] = [];
+  await fs.writeFile(files.draft, JSON.stringify(draft), 'utf8'); const state: any = maintenance(); state.equipmentState = 2; const writes: string[] = [];
   global.fetch = async (input, init) => {
     if (init?.method === 'GET') return response(state);
     writes.push(`${init?.method} ${input} ${init?.body}`); state.equipmentState = JSON.parse(String(init?.body)).equipmentState; return response({ ok: true });
@@ -120,7 +120,7 @@ test('uses the field-specific correction endpoint and is safe to resume', async 
     method: 'PUT', path: '/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=replyCorrected',
   };
   await fs.writeFile(files.contract, JSON.stringify(contract), 'utf8');
-  let state: any = maintenance(); const writes: string[] = [];
+  const state: any = maintenance(); const writes: string[] = [];
   global.fetch = async (input, init) => {
     const url = String(input);
     if (init?.method === 'GET') return response(state);
@@ -196,7 +196,7 @@ test('treats null and missing source text as the same empty value', async () => 
 
 test('stops on a rate-limit response without retrying an ambiguous write and exposes partial progress', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  const files = await fixtureFiles('approved'); let state: any = maintenance(); let writes = 0;
+  const files = await fixtureFiles('approved'); const state: any = maintenance(); let writes = 0;
   global.fetch = async (input, init) => {
     if (init?.method === 'GET') return response(state);
     writes += 1;

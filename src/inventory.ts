@@ -3,7 +3,7 @@ import path from 'node:path';
 import { API_URL } from './config.js';
 import { canonicalEndpoints } from './endpoints.js';
 import { capturesDir, endpointConfigPath, inventoryPath } from './paths.js';
-import type { CaptureRecord, EndpointDefinition, EndpointInventory } from './types.js';
+import type { CaptureRecord, EndpointInventory } from './types.js';
 import { writeJson } from './utils.js';
 
 export async function buildInventory(): Promise<EndpointInventory> {
@@ -41,19 +41,6 @@ export async function buildInventory(): Promise<EndpointInventory> {
   console.log(`Inventario sanitizado: ${inventoryPath}`);
   console.log(`Candidatos privados para exportacion: ${endpointConfigPath}`);
   return inventory;
-}
-
-function findArrayPath(value: unknown, prefix = '', depth = 0): string | undefined {
-  if (Array.isArray(value)) return prefix;
-  if (!value || typeof value !== 'object' || depth >= 3) return undefined;
-  const preferred = ['docs', 'data', 'results', 'items', 'rows'];
-  const entries = Object.entries(value as Record<string, unknown>);
-  entries.sort(([a], [b]) => preferred.indexOf(a) - preferred.indexOf(b));
-  for (const [key, child] of entries) {
-    const found = findArrayPath(child, prefix ? `${prefix}.${key}` : key, depth + 1);
-    if (found !== undefined) return found;
-  }
-  return undefined;
 }
 
 async function writeEndpointCandidates(files: string[]): Promise<void> {

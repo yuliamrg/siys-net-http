@@ -1,9 +1,12 @@
 {
   "name": "siys-explorer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Exploracion autorizada y exportacion de datos de SIYS.",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "bin": {
     "siys": "./dist/cli.js"
   },
@@ -15,8 +18,10 @@
     "inventory": "tsx src/cli.ts inventory",
     "export": "tsx src/cli.ts download",
     "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "playwright test"
+    "test": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "commander": "^14.0.2",
@@ -25,10 +30,13 @@
     "parquetjs-lite": "^0.8.7"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "^1.60.0",
     "@types/node": "^24.10.1",
+    "eslint": "10.8.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "8.65.0"
   },
   "overrides": {
     "uuid": "^11.1.1"

@@ -15,6 +15,7 @@ import { inspectQuote, quoteInspectionOutputPath, writeQuoteInspection } from '.
 import { executeOrderCreate, orderCreateAuditOutputPath, orderCreateExecutionState, orderCreateSimulationOutputPath, writeOrderCreateAudit, writeOrderCreateSimulation } from './order-create.js';
 import { asCliError, CliError, errorPayload } from './errors.js';
 import { cancelApplication } from './lifecycle.js';
+import { packageVersion } from './version.js';
 
 async function runLogin(): Promise<void> {
   const token = await loginDirect();
@@ -145,7 +146,7 @@ async function runOrderApplyReview(file: string, rawOptions: {
       const report = partial as { orderCode: string };
       const output = rawOptions.auditOutput ?? applyAuditOutputPath(report.orderCode, rawOptions.outDir ?? exportsDir);
       await writeApplyAudit(output, partial as Parameters<typeof writeApplyAudit>[1]);
-      throw new Error(`${error instanceof Error ? error.message : String(error)} Auditoría parcial: ${output}`);
+      throw new Error(`${error instanceof Error ? error.message : String(error)} Auditoría parcial: ${output}`, { cause: error });
     }
     throw error;
   }
@@ -192,7 +193,7 @@ async function runOrderCreate(file: string, rawOptions: {
     const partial = error && typeof error === 'object' ? (error as { orderCreateAudit?: Parameters<typeof writeOrderCreateAudit>[1] }).orderCreateAudit : undefined;
     if (partial) {
       try { await writeOrderCreateAudit(auditOutput, partial); } catch { /* The original error remains authoritative. */ }
-      throw new Error(`${error instanceof Error ? error.message : String(error)} Auditoría: ${auditOutput}`);
+      throw new Error(`${error instanceof Error ? error.message : String(error)} Auditoría: ${auditOutput}`, { cause: error });
     }
     throw error;
   }
@@ -299,7 +300,7 @@ function parseNonNegativeInteger(value: string): number {
 }
 
 const program = new Command();
-program.name('siys').description('CLI para descargar datos de SIYS por HTTP directo.').option('--debug', 'Muestra la traza interna de errores en stderr.');
+program.name('siys').description('CLI para descargar datos de SIYS por HTTP directo.').version(packageVersion).option('--debug', 'Muestra la traza interna de errores en stderr.');
 program.exitOverride();
 program.configureOutput({ writeErr: () => undefined });
 program.command('login').description('Autentica por HTTP directo y guarda la sesion local sin abrir navegador.').action(runLogin);
