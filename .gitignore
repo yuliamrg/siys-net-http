@@ -19,10 +19,11 @@ artifacts/orden-*.json
 /ordenes-*.json
 /revision-*.json
 
-# Operational PDFs are not source files. The curated comparison PDFs in Example/
-# are deliberately versioned as regression references for HVAC wording.
+# The canonical order library is outside the repository on OneDrive
+/ordenes-siys/
+
+# Operational PDFs are not source files.
 *.pdf
-!Example/*.pdf
 
 # Local/editor files
 .DS_Store

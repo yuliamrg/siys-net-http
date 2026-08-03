@@ -98,23 +98,27 @@ Esto cambia el flujo recomendado para análisis: la UI debe tratarse como mecani
 
 Prueba ejecutada por HTTP directo, sin abrir navegador:
 
-| Módulo | Registros | Archivo |
-| --- | ---: | --- |
-| Clientes | 86 | `exports/http-direct-clients-test.json` |
-| Órdenes | 60 | `exports/http-direct-orders-test.json` |
-| Cotizaciones | 311 | `exports/http-direct-quotes-test.json` |
-| Equipos | 4.908 | `exports/http-direct-equipment-test.json` |
+| Módulo | Registros |
+| --- | ---: |
+| Clientes | 86 |
+| Órdenes | 60 |
+| Cotizaciones | 311 |
+| Equipos | 4.908 |
+
+Los archivos de esta prueba fueron salidas temporales y no se conservan en el proyecto.
 
 La prueba de órdenes usó `--max-pages 1`; por tanto, el conteo corresponde a la primera página del rango mensual predeterminado en ese momento. Equipos consolidó clientes y luego consultó `/api/equipment?customer=<id>` por cada cliente.
 
 Resultados XLSX del 12 de junio de 2026:
 
-| Módulo | Registros | Archivo |
-| --- | ---: | --- |
-| Órdenes | 59 | `exports/orders.xlsx` |
-| Cotizaciones | 311 | `exports/quotes.xlsx` |
-| Clientes | 86 | `exports/clients.xlsx` |
-| Equipos | 4.908 | `exports/equipment.xlsx` |
+| Módulo | Registros |
+| --- | ---: |
+| Órdenes | 59 |
+| Cotizaciones | 311 |
+| Clientes | 86 |
+| Equipos | 4.908 |
+
+Los libros utilizados para esa validación histórica tampoco se conservan en el proyecto.
 
 Las cantidades dependen de la fecha, los filtros y los permisos de la cuenta. Órdenes y cotizaciones usan un rango anual predeterminado.
 

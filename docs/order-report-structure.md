@@ -2,7 +2,7 @@
 
 Este documento registra la relación entre una orden de SIYS, los datos que carga la aplicación web y el PDF Reporte de Servicio que se genera al imprimir una orden.
 
-La evidencia se obtuvo en modo de solo lectura con la orden 007393 y el archivo 2026-06 informe freezer preventivo sede bello.pdf. El informe tenía 66 páginas y correspondía a 56 equipos/mantenimientos.
+El análisis se realizó en modo de solo lectura con la orden 007393 y un PDF de Reporte de Servicio de 66 páginas, correspondiente a 56 equipos/mantenimientos. El PDF fue un insumo temporal de validación y no se conserva en el proyecto.
 
 ## Flujo de datos
 

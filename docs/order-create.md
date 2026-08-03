@@ -1,6 +1,6 @@
 # Simulación de creación manual de órdenes
 
-Estado: funcionalidad operativa habilitada después de completar las nueve fases. Sin `--confirm`, el comando valida y simula sin escribir en SIYS. Toda creación exige la doble autorización documentada y conserva auditoría y verificación posterior.
+Estado: funcionalidad operativa habilitada. Sin `--confirm`, el comando valida y simula sin escribir en SIYS. Toda creación exige la doble autorización documentada y conserva auditoría y verificación posterior.
 
 ## Uso
 

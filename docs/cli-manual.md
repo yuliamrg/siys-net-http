@@ -8,6 +8,14 @@ siys download
 
 Por defecto descarga todos los modulos en formato XLSX dentro de `exports/`.
 
+Para mantener el proyecto limpio, usa preferiblemente una carpeta temporal fuera del repositorio:
+
+```powershell
+siys download --module all --format xlsx --out-dir "$env:TEMP\siys-net-http-exports"
+```
+
+Las exportaciones pueden existir localmente, pero nunca deben versionarse. Las ordenes, snapshots, evidencias, revisiones y auditorias son persistentes y deben guardarse exclusivamente en `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys`.
+
 ## Modulos Disponibles
 
 | Modulo | Valor CLI |
