@@ -6,6 +6,7 @@ import { getAuthenticatedToken, loginDirect } from './auth.js';
 import { privateDir } from './paths.js';
 import { ensureDir, timestamp } from './utils.js';
 import { CliError } from './errors.js';
+import { parseJsonBytes } from './json-file.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -333,20 +334,14 @@ function isAuthError(error: unknown): boolean {
 
 async function readRequestSource(file: string): Promise<{ request: OrderCreateRequest; sourceSha256: string }> {
   const bytes = await fs.readFile(file);
-  const text = bytes.toString('utf8');
-  if (text.charCodeAt(0) === 0xfeff) throw new Error('La solicitud JSON no debe contener BOM; guardala como UTF-8 sin BOM.');
-  if (text.includes('\uFFFD')) throw new Error('La solicitud JSON contiene caracteres de reemplazo; revisa su codificacion UTF-8.');
-  let raw: unknown;
-  try { raw = JSON.parse(text); } catch (error) { throw new Error(`La solicitud no es JSON valido: ${error instanceof Error ? error.message : String(error)}`); }
+  const raw = parseJsonBytes<unknown>(bytes, 'La solicitud JSON');
   return { request: parseRequest(raw), sourceSha256: crypto.createHash('sha256').update(bytes).digest('hex') };
 }
 
 async function readCreateContract(file: string): Promise<{ file: string; sha256: string; method: 'POST'; path: '/order' }> {
   const bytes = await fs.readFile(file);
-  const text = bytes.toString('utf8');
-  if (text.charCodeAt(0) === 0xfeff || text.includes('\uFFFD')) throw new Error('El contrato debe estar en UTF-8 sin BOM ni caracteres de reemplazo.');
   let raw: JsonRecord;
-  try { raw = record(JSON.parse(text), 'El contrato'); } catch (error) { throw new Error(`No se pudo leer el contrato ${file}: ${error instanceof Error ? error.message : String(error)}`); }
+  try { raw = record(parseJsonBytes<unknown>(bytes, 'El contrato'), 'El contrato'); } catch (error) { throw new Error(`No se pudo leer el contrato ${file}: ${error instanceof Error ? error.message : String(error)}`); }
   exactKeys(raw, new Set(['schemaVersion', 'enabled', 'operation']), 'El contrato');
   if (raw.schemaVersion !== '1.0' || raw.enabled !== true) throw new Error('El contrato debe declarar schemaVersion "1.0" y enabled: true.');
   const operation = record(raw.operation, 'operation del contrato');

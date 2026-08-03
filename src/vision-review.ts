@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { readJsonFile } from './json-file.js';
 
 type Rec = Record<string, unknown>;
 const rec = (v: unknown): Rec => v && typeof v === 'object' && !Array.isArray(v) ? v as Rec : {};
@@ -13,8 +14,8 @@ const latestHistoryReply = (activity: Rec): string => {
 
 /** Builds a non-writing review draft from high-confidence, visible image facts. */
 export async function buildVisionReview(snapshotPath: string, manifestPath: string, outputPath: string): Promise<{ orderCode: string; proposals: number; manual: number }> {
-  const snapshot = rec(JSON.parse(await fs.readFile(snapshotPath, 'utf8')));
-  const manifest = rec(JSON.parse(await fs.readFile(manifestPath, 'utf8')));
+  const snapshot = rec(await readJsonFile<unknown>(snapshotPath, 'El snapshot'));
+  const manifest = rec(await readJsonFile<unknown>(manifestPath, 'El manifiesto visual'));
   const orderCode = str(snapshot.code);
   if (!orderCode || str(manifest.orderCode) !== orderCode) throw new Error('El snapshot y el manifiesto visual no pertenecen a la misma orden.');
   const visual = new Map<string, { facts: string[]; description: string; confidence: string; evidence: string[] }>();

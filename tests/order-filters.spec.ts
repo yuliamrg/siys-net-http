@@ -12,3 +12,9 @@ test('accepts the state labels shown by SIYS', () => {
   expect(parseOrderState('En ejecución')).toBe('2');
   expect(parseOrderState('Finalizada')).toBe('3');
 });
+
+test('validates real calendar dates instead of normalizing them', () => {
+  expect(() => buildOrderFilterParams({ start: '2026-02-29', end: '2026-03-01' })).toThrow(/--start/);
+  expect(() => buildOrderFilterParams({ start: '2026-02-31', end: '2026-03-01' })).toThrow(/--start/);
+  expect(buildOrderFilterParams({ start: '2028-02-29', end: '2028-02-29' }).start).toBe('2028-02-29');
+});

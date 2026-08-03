@@ -4,6 +4,7 @@ import { ensureDir } from './utils.js';
 import { privateDir, storageStatePath } from './paths.js';
 import { requestHttp } from './http.js';
 import { CliError } from './errors.js';
+import { readJsonFile } from './json-file.js';
 
 interface StorageState {
   cookies?: unknown[];
@@ -12,7 +13,7 @@ interface StorageState {
 
 export async function loadToken(): Promise<string> {
   if (process.env.SIYS_TOKEN) return process.env.SIYS_TOKEN;
-  const state = JSON.parse(await fs.readFile(storageStatePath, 'utf8')) as StorageState;
+  const state = await readJsonFile<StorageState>(storageStatePath, 'La sesión local');
   for (const origin of state.origins ?? []) {
     const token = origin.localStorage?.find((entry) => entry.name === 'token')?.value;
     if (token) return token;

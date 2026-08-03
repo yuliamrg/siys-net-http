@@ -72,3 +72,10 @@ siys download --module all --format xlsx --out-dir "$env:TEMP\siys-net-http-expo
 ```
 
 Si se usa `exports/` dentro del proyecto, esa carpeta esta ignorada y nunca debe versionarse. Las ordenes, snapshots, evidencias, revisiones y auditorias no son exportaciones temporales: deben guardarse exclusivamente en `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys`.
+
+## Validación de configuración
+
+- `SIYS_BASE_URL`, `SIYS_API_URL` y `SIYS_LOGIN_URL` deben ser URL absolutas HTTPS sin credenciales, query ni fragmentos.
+- La API y el login deben compartir el mismo origen; la CLI no ofrece una opción permanente para desactivar TLS.
+- `private/endpoints.json` solo admite módulos conocidos, método `GET`, rutas relativas seguras, paginación positiva, claves conocidas y combinaciones módulo/ruta no duplicadas.
+- Solicitudes, contratos, revisiones, snapshots y manifiestos JSON locales deben estar en UTF-8 sin BOM, caracteres de reemplazo ni mojibake detectable.
