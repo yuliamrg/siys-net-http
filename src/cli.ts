@@ -84,14 +84,16 @@ async function runCapture(): Promise<void> {
   await captureAssisted();
 }
 
-async function runExplore(): Promise<void> {
+async function runExplore(rawOptions: { json?: boolean }): Promise<void> {
   const { exploreAutonomously } = await import('./explore.js');
-  await exploreAutonomously();
+  const result = await exploreAutonomously(rawOptions);
+  if (rawOptions.json) console.log(JSON.stringify(result, null, 2));
 }
 
-async function runInventory(): Promise<void> {
+async function runInventory(rawOptions: { json?: boolean }): Promise<void> {
   const { buildInventory } = await import('./inventory.js');
-  await buildInventory();
+  const result = await buildInventory(rawOptions);
+  if (rawOptions.json) console.log(JSON.stringify(result, null, 2));
 }
 
 async function runOrderInspect(code: string, rawOptions: {
@@ -260,7 +262,7 @@ async function runQuoteInspect(code: string, rawOptions: {
 
 function addDownloadOptions(command: Command): Command {
   return command
-    .option('-m, --module <module>', 'Modulo(s): all, orders, quotes, clients, equipment. Se puede repetir o separar por coma.', collect, [])
+    .option('-m, --module <module>', 'Modulo(s): all, orders, quotes, clients, users, sites, equipment. Se puede repetir o separar por coma.', collect, [])
     .option('-f, --format <format>', 'Formato(s): json, csv, xlsx, parquet. Se puede repetir o separar por coma.', collect, [])
     .option('-p, --param <key=value>', 'Parametro o filtro; se puede repetir. Solo para un modulo.', collect, [])
     .option('--order-code <numero>', 'Filtro de órdenes: número/código.')
@@ -307,8 +309,8 @@ program.command('login').description('Autentica por HTTP directo y guarda la ses
 addDownloadOptions(program.command('download').description('Descarga uno o varios modulos en uno o varios formatos.')).action(runDownload);
 addDownloadOptions(program.command('export').description('Alias compatible de download.')).action(runDownload);
 program.command('capture').description('Abre Chromium para captura asistida y guarda la sesion local.').action(runCapture);
-program.command('explore').description('Recorre en modo lectura los cuatro modulos autorizados.').action(runExplore);
-program.command('inventory').description('Genera inventario sanitizado y candidatos de endpoints.').action(runInventory);
+program.command('explore').description('Recorre en modo lectura los módulos visibles y guarda una captura técnica.').option('--json', 'Imprime el resultado en JSON.').action(runExplore);
+program.command('inventory').description('Genera inventario sanitizado y candidatos de endpoints.').option('--json', 'Imprime el inventario en JSON.').action(runInventory);
 const order = program.command('order').description('Inspecciona, simula la creacion o aplica una revision aprobada de una orden.');
 order.command('create <file>')
   .description('Valida y simula una orden manual; solo escribe con aprobación, contrato y --confirm.')

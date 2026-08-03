@@ -6,7 +6,7 @@ import { capturesDir, endpointConfigPath, inventoryPath } from './paths.js';
 import type { CaptureRecord, EndpointInventory } from './types.js';
 import { writeJson } from './utils.js';
 
-export async function buildInventory(): Promise<EndpointInventory> {
+export async function buildInventory(options: { json?: boolean } = {}): Promise<EndpointInventory> {
   const files = (await fs.readdir(capturesDir).catch(() => [] as string[])).filter((file) => file.endsWith('.ndjson'));
   const grouped = new Map<string, EndpointInventory['endpoints'][number]>();
 
@@ -38,8 +38,10 @@ export async function buildInventory(): Promise<EndpointInventory> {
   };
   await writeJson(inventoryPath, inventory);
   await writeEndpointCandidates(files);
-  console.log(`Inventario sanitizado: ${inventoryPath}`);
-  console.log(`Candidatos privados para exportacion: ${endpointConfigPath}`);
+  if (!options.json) {
+    console.log(`Inventario sanitizado: ${inventoryPath}`);
+    console.log(`Candidatos privados para exportacion: ${endpointConfigPath}`);
+  }
   return inventory;
 }
 
