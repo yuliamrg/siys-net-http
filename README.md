@@ -12,6 +12,7 @@ cd siys-net-http
 npm ci
 npm run build
 npm link
+siys --version
 siys download --module all --format xlsx --out-dir exports
 ```
 
@@ -32,6 +33,7 @@ Si se usa `exports/` dentro del proyecto, esa carpeta debe permanecer ignorada y
 | Documento | Para que sirve |
 | --- | --- |
 | [Instalacion y configuracion](docs/installation.md) | Preparar el proyecto, variables `.env`, build y enlace del comando `siys`. |
+| [Changelog](CHANGELOG.md) | Cambios visibles, seguridad y compatibilidad de cada versión. |
 | [Manual de la CLI](docs/cli-manual.md) | Comandos, opciones, ejemplos y filtros para descargar datos. |
 | [Integracion con otras aplicaciones](docs/integration.md) | Como ejecutar la CLI desde otros procesos y consumir la salida `--json`. |
 | [Seguridad y datos locales](docs/security-and-storage.md) | Manejo de credenciales, token, archivos temporales y carpetas no versionadas. |
@@ -59,4 +61,6 @@ siys quote inspect C20260734 --output C20260734-detail.json --json
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm run check
 ```

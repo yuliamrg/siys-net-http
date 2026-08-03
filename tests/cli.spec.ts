@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { packageVersion } from '../src/version.js';
 
 function run(args: string[]) {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
@@ -14,6 +15,13 @@ test('prints help without a stack trace', () => {
   const result = run(['--help']);
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Usage: siys');
+  expect(result.stderr).toBe('');
+});
+
+test('prints the package version', () => {
+  const result = run(['--version']);
+  expect(result.status).toBe(0);
+  expect(result.stdout.trim()).toBe(packageVersion);
   expect(result.stderr).toBe('');
 });
 

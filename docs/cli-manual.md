@@ -6,6 +6,8 @@ La CLI descarga informacion de SIYS por HTTP directo. El comando principal es:
 siys download
 ```
 
+Consulta la versión instalada con `siys --version`.
+
 Por defecto descarga todos los modulos en formato XLSX dentro de `exports/`.
 
 Para mantener el proyecto limpio, usa preferiblemente una carpeta temporal fuera del repositorio:

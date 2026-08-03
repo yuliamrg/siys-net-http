@@ -153,7 +153,7 @@ function setPath(target: JsonRecord, fieldPath: string, value: unknown): void {
 }
 async function readJson(file: string, label: string): Promise<JsonRecord> {
   try { return record(await readJsonFile<unknown>(file, label), label); }
-  catch (error) { throw new Error(`No se pudo leer ${label} ${file}: ${error instanceof Error ? error.message : String(error)}`); }
+  catch (error) { throw new Error(`No se pudo leer ${label} ${file}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
 }
 async function sha256File(file: string): Promise<string> {
   return crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
