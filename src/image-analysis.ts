@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { IMAGE_TIMEOUT_MS, OPENAI_TIMEOUT_MS } from './config.js';
 import { requestHttp, parseJsonResponse } from './http.js';
+import { readJsonFile } from './json-file.js';
 
 type RecordValue = Record<string, unknown>;
 
@@ -114,7 +115,7 @@ async function analyzeWithOpenAI(evidence: ImageEvidence[], guide: string, model
 }
 
 export async function analyzeImages(snapshotPath: string, outputPath: string, options: { analyze?: boolean; model?: string; guidesDir?: string; downloadConcurrency?: number; analysisConcurrency?: number }): Promise<ImageAnalysisReport> {
-  const snapshot = record(JSON.parse(await fs.readFile(snapshotPath, 'utf8')));
+  const snapshot = record(await readJsonFile<unknown>(snapshotPath, 'El snapshot'));
   const orderCode = text(snapshot.code);
   if (!orderCode) throw new Error('El snapshot no tiene código de orden.');
   const root = path.dirname(outputPath);

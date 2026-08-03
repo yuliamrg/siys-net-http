@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fetchApiJson, sendApiJson } from './api.js';
 import { getAuthenticatedToken, loginDirect } from './auth.js';
 import { ensureDir, timestamp } from './utils.js';
+import { readJsonFile } from './json-file.js';
 
 type JsonRecord = Record<string, unknown>;
 type EntityType = 'maintenance' | 'task' | 'activity';
@@ -151,7 +152,7 @@ function setPath(target: JsonRecord, fieldPath: string, value: unknown): void {
   cursor[parts.at(-1)!] = value;
 }
 async function readJson(file: string, label: string): Promise<JsonRecord> {
-  try { return record(JSON.parse(await fs.readFile(file, 'utf8')), label); }
+  try { return record(await readJsonFile<unknown>(file, label), label); }
   catch (error) { throw new Error(`No se pudo leer ${label} ${file}: ${error instanceof Error ? error.message : String(error)}`); }
 }
 async function sha256File(file: string): Promise<string> {
