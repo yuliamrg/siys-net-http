@@ -257,7 +257,7 @@ test('writes an atomic audit without authentication secrets', async () => {
   await fs.rm(fixture.directory, { recursive: true, force: true });
 });
 
-test('does not claim verification when the created detail differs or the response has no ID', async () => {
+test('fails safely when the created detail differs or the response has no ID', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const mismatchFixture = await requestFile({ status: 'approved' });
   const mismatchContract = await contractFile(mismatchFixture.directory);
@@ -271,13 +271,12 @@ test('does not claim verification when the created detail differs or the respons
     } });
     return catalogFetch(input, init);
   };
-  const mismatch = await executeOrderCreate(mismatchFixture.file, { confirm: true, contractPath: mismatchContract, autoLogin: false, receiptDir: path.join(mismatchFixture.directory, 'receipts') });
-  expect(mismatch.dryRun).toBe(false);
-  if (!mismatch.dryRun) {
-    expect(mismatch.audit.status).toBe('verification_failed');
-    expect(mismatch.audit.verification?.status).toBe('mismatch');
-    expect(mismatch.audit.verification?.checks.filter((check) => !check.matches).map((check) => check.field)).toContain('material');
-  }
+  let mismatchError: (Error & { orderCreateAudit?: { status: string; verification?: { status: string; checks: Array<{ matches: boolean; field: string }> } } }) | undefined;
+  try { await executeOrderCreate(mismatchFixture.file, { confirm: true, contractPath: mismatchContract, autoLogin: false, receiptDir: path.join(mismatchFixture.directory, 'receipts') }); } catch (error) { mismatchError = error as typeof mismatchError; }
+  expect(mismatchError?.message).toMatch(/verificación posterior falló/i);
+  expect(mismatchError?.orderCreateAudit?.status).toBe('verification_failed');
+  expect(mismatchError?.orderCreateAudit?.verification?.status).toBe('mismatch');
+  expect(mismatchError?.orderCreateAudit?.verification?.checks.filter((check) => !check.matches).map((check) => check.field)).toContain('material');
   await fs.rm(mismatchFixture.directory, { recursive: true, force: true });
 
   const noIdFixture = await requestFile({ status: 'approved' });
@@ -285,12 +284,10 @@ test('does not claim verification when the created detail differs or the respons
   mockCatalogs();
   const noIdCatalogFetch = global.fetch;
   global.fetch = async (input, init) => init?.method === 'POST' ? response({ ok: true }) : noIdCatalogFetch(input, init);
-  const noId = await executeOrderCreate(noIdFixture.file, { confirm: true, contractPath: noIdContract, autoLogin: false, receiptDir: path.join(noIdFixture.directory, 'receipts') });
-  expect(noId.dryRun).toBe(false);
-  if (!noId.dryRun) {
-    expect(noId.audit.status).toBe('verification_failed');
-    expect(noId.audit.verification).toEqual(expect.objectContaining({ status: 'inconclusive', source: 'create-response' }));
-  }
+  let noIdError: (Error & { orderCreateAudit?: { status: string; verification?: unknown } }) | undefined;
+  try { await executeOrderCreate(noIdFixture.file, { confirm: true, contractPath: noIdContract, autoLogin: false, receiptDir: path.join(noIdFixture.directory, 'receipts') }); } catch (error) { noIdError = error as typeof noIdError; }
+  expect(noIdError?.orderCreateAudit?.status).toBe('verification_failed');
+  expect(noIdError?.orderCreateAudit?.verification).toEqual(expect.objectContaining({ status: 'inconclusive', source: 'create-response' }));
   await fs.rm(noIdFixture.directory, { recursive: true, force: true });
 });
 

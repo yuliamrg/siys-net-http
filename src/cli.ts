@@ -2,6 +2,7 @@
 import './env.js';
 import path from 'node:path';
 import { Command } from 'commander';
+import { CommanderError } from 'commander';
 import { loginDirect, tokenExpiration, tokenIssuedAt } from './auth.js';
 import { buildDownloadOptions, downloadData } from './download.js';
 import { inspectionOutputPath, inspectOrder, writeInspection } from './order-inspect.js';
@@ -12,6 +13,8 @@ import { analyzeImages } from './image-analysis.js';
 import { buildVisionReview } from './vision-review.js';
 import { inspectQuote, quoteInspectionOutputPath, writeQuoteInspection } from './quote-inspect.js';
 import { executeOrderCreate, orderCreateAuditOutputPath, orderCreateExecutionState, orderCreateSimulationOutputPath, writeOrderCreateAudit, writeOrderCreateSimulation } from './order-create.js';
+import { asCliError, CliError, errorPayload } from './errors.js';
+import { cancelApplication } from './lifecycle.js';
 
 async function runLogin(): Promise<void> {
   const token = await loginDirect();
@@ -44,6 +47,7 @@ async function runDownload(rawOptions: {
   subsidiary?: string;
   technician?: string;
   createdBy?: string;
+  allowPartial?: boolean;
 }): Promise<void> {
   const usesOrderFilters = [rawOptions.orderCode, rawOptions.orderType, rawOptions.cause, rawOptions.rootCause, rawOptions.start, rawOptions.end, rawOptions.state, rawOptions.invoiced, rawOptions.customer, rawOptions.subsidiary, rawOptions.technician, rawOptions.createdBy].some((value) => value !== undefined);
   if (usesOrderFilters && (rawOptions.module?.length !== 1 || rawOptions.module[0] !== 'orders')) {
@@ -62,6 +66,7 @@ async function runDownload(rawOptions: {
     outDir: rawOptions.outDir,
     output: rawOptions.output,
     autoLogin: !rawOptions.noAutoLogin,
+    allowPartial: rawOptions.allowPartial,
   });
   const results = await downloadData(options);
   if (rawOptions.json) {
@@ -212,6 +217,9 @@ async function runOrderCreate(file: string, rawOptions: {
     verification: execution.dryRun ? undefined : execution.audit.verification,
     output,
   };
+  if (!execution.dryRun && execution.audit.status === 'verification_failed') {
+    throw new CliError(`SIYS recibió la creación, pero la verificación posterior falló. Auditoría: ${auditOutput}. No reintentar automáticamente.`, 'safety', 'verification_failed', 'order create');
+  }
   if (rawOptions.json) console.log(JSON.stringify(summary, null, 2));
   else console.log(`${execution.dryRun ? 'Simulacion' : 'Creacion enviada'}: ${summary.ready ? 'lista' : 'bloqueada'}, ${summary.equipments} equipos, ${summary.technicians} tecnicos, ${summary.schedules} horarios, ${summary.siysWritesAttempted} escritura(s) en SIYS. Archivo: ${summary.output}`);
 }
@@ -267,6 +275,7 @@ function addDownloadOptions(command: Command): Command {
     .option('--technician <id>', 'Filtro de órdenes: ID de técnico.')
     .option('--created-by <id>', 'Filtro de órdenes: ID del usuario que la generó.')
     .option('--max-pages <number>', 'Limite de paginas.', parsePositiveInteger, 100)
+    .option('--allow-partial', 'Permite exportar explícitamente resultados potencialmente truncados por --max-pages.')
     .option('--out-dir <dir>', 'Carpeta destino.', 'exports')
     .option('-o, --output <file>', 'Archivo de salida. Solo con un modulo y un formato.')
     .option('--json', 'Imprime resumen en JSON para integraciones.')
@@ -290,7 +299,9 @@ function parseNonNegativeInteger(value: string): number {
 }
 
 const program = new Command();
-program.name('siys').description('CLI para descargar datos de SIYS por HTTP directo.');
+program.name('siys').description('CLI para descargar datos de SIYS por HTTP directo.').option('--debug', 'Muestra la traza interna de errores en stderr.');
+program.exitOverride();
+program.configureOutput({ writeErr: () => undefined });
 program.command('login').description('Autentica por HTTP directo y guarda la sesion local sin abrir navegador.').action(runLogin);
 addDownloadOptions(program.command('download').description('Descarga uno o varios modulos en uno o varios formatos.')).action(runDownload);
 addDownloadOptions(program.command('export').description('Alias compatible de download.')).action(runDownload);
@@ -363,4 +374,28 @@ quote.command('inspect <code>')
   .option('--no-auto-login', 'No intenta login HTTP si falta o falla la sesion.')
   .action(runQuoteInspect);
 
-await program.parseAsync();
+let interrupted = false;
+process.once('SIGINT', () => {
+  interrupted = true;
+  cancelApplication();
+});
+
+try {
+  await program.parseAsync();
+} catch (rawError) {
+  if (rawError instanceof CommanderError && rawError.exitCode === 0) process.exitCode = 0;
+  else {
+    const error = rawError instanceof CommanderError
+      ? new CliError(rawError.message, 'usage', rawError.code)
+      : asCliError(rawError);
+    if (interrupted && error.category !== 'cancelled') {
+      const cancelled = new CliError('Operación cancelada por el usuario.', 'cancelled', 'cancelled');
+      process.stderr.write(`${process.argv.includes('--json') ? JSON.stringify(errorPayload(cancelled)) : `Error: ${cancelled.message}`}\n`);
+      process.exitCode = cancelled.exitCode;
+    } else {
+      process.stderr.write(`${process.argv.includes('--json') ? JSON.stringify(errorPayload(error)) : `Error: ${error.message}`}\n`);
+      if (process.argv.includes('--debug') && rawError instanceof Error && rawError.stack) process.stderr.write(`${rawError.stack}\n`);
+      process.exitCode = error.exitCode;
+    }
+  }
+}

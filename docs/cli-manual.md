@@ -45,8 +45,13 @@ Las exportaciones pueden existir localmente, pero nunca deben versionarse. Las o
 | `--output <file>` | Archivo exacto de salida. Solo valido con un modulo y un formato. |
 | `--param <key=value>` | Filtro observado en SIYS. Solo valido con un modulo. Se puede repetir. |
 | `--max-pages <number>` | Limite de paginas para endpoints paginados. Default: `100`. |
+| `--allow-partial` | Autoriza explícitamente exportar resultados potencialmente truncados por `--max-pages`. Sin esta opción la descarga se detiene antes de escribir el archivo. |
 | `--json` | Imprime resumen estructurado para integracion con otras aplicaciones. |
 | `--no-auto-login` | No intenta login HTTP automatico si falta o falla la sesion. |
+
+Las lecturas y el login tienen un timeout total de 30 segundos. Puede ajustarse con `SIYS_HTTP_TIMEOUT_MS` entre 1 y 300 segundos. Las escrituras conservan `--timeout-ms` en 15 segundos por defecto y nunca se reintentan automáticamente; las imágenes usan 60 segundos y el análisis visual 120 segundos.
+
+La opción global `--debug` muestra la traza interna en `stderr`. No la uses en registros compartidos porque puede incluir rutas locales. Sin `--debug`, los errores son breves y no muestran stack trace.
 
 ## Ejemplos Comunes
 
