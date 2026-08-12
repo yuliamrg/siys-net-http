@@ -1,31 +1,7 @@
 {
-  "generatedAt": "2026-06-13T00:49:05.183Z",
+  "generatedAt": "2026-08-03T02:12:30.865Z",
   "apiBaseUrl": "https://api.siys.net/api",
   "endpoints": [
-    {
-      "module": "clients",
-      "method": "GET",
-      "path": "/customer",
-      "statuses": [
-        200
-      ],
-      "contentTypes": [
-        "application/json; charset=utf-8"
-      ],
-      "sampleCount": 2
-    },
-    {
-      "module": "clients",
-      "method": "GET",
-      "path": "/marker",
-      "statuses": [
-        200
-      ],
-      "contentTypes": [
-        "application/json; charset=utf-8"
-      ],
-      "sampleCount": 2
-    },
     {
       "module": "clients",
       "method": "GET",
@@ -36,7 +12,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "clients",
@@ -48,7 +24,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "equipment",
@@ -72,7 +48,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 1
+      "sampleCount": 2
     },
     {
       "module": "equipment",
@@ -89,18 +65,6 @@
     {
       "module": "equipment",
       "method": "GET",
-      "path": "/marker",
-      "statuses": [
-        200
-      ],
-      "contentTypes": [
-        "application/json; charset=utf-8"
-      ],
-      "sampleCount": 1
-    },
-    {
-      "module": "equipment",
-      "method": "GET",
       "path": "/policy",
       "statuses": [
         200
@@ -108,7 +72,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "equipment",
@@ -132,7 +96,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "orders",
@@ -144,7 +108,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "orders",
@@ -156,19 +120,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
-    },
-    {
-      "module": "orders",
-      "method": "GET",
-      "path": "/marker",
-      "statuses": [
-        200
-      ],
-      "contentTypes": [
-        "application/json; charset=utf-8"
-      ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "orders",
@@ -180,7 +132,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "orders",
@@ -245,18 +197,6 @@
     {
       "module": "quotes",
       "method": "GET",
-      "path": "/marker",
-      "statuses": [
-        200
-      ],
-      "contentTypes": [
-        "application/json; charset=utf-8"
-      ],
-      "sampleCount": 1
-    },
-    {
-      "module": "quotes",
-      "method": "GET",
       "path": "/policy",
       "statuses": [
         200
@@ -264,7 +204,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
+      "sampleCount": 1
     },
     {
       "module": "quotes",
@@ -300,18 +240,6 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 2
-    },
-    {
-      "module": "unknown",
-      "method": "POST",
-      "path": "/login",
-      "statuses": [
-        200
-      ],
-      "contentTypes": [
-        "text/html; charset=utf-8"
-      ],
       "sampleCount": 1
     },
     {
@@ -324,7 +252,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 4
+      "sampleCount": 1
     },
     {
       "module": "unknown",
@@ -336,7 +264,7 @@
       "contentTypes": [
         "application/json; charset=utf-8"
       ],
-      "sampleCount": 4
+      "sampleCount": 1
     }
   ]
 }
