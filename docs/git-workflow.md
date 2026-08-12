@@ -24,6 +24,36 @@ git commit -m "Describe el cambio"
 
 Usar una rama por tema. No hacer `git add .` cuando hay snapshots, PDFs, artefactos de órdenes o cambios de otras personas.
 
+## Integracion con GitHub
+
+`main` esta protegida por el ruleset `Protect main`. No se debe hacer push directo a esa rama.
+El flujo completo es:
+
+```powershell
+git status --short
+git switch -c agent/<cambio-corto>
+# editar y verificar
+npm run check
+git diff --check
+git add <archivos-del-cambio>
+git commit -m "Describe el cambio"
+git push -u origin agent/<cambio-corto>
+gh pr create --draft --base main --head agent/<cambio-corto>
+```
+
+El Pull Request debe pasar los checks obligatorios `quality-node-20` y `quality-node-24`.
+El ruleset permite merge, squash o rebase, pero bloquea el push directo, la reescritura de historia y el borrado de `main`.
+No se requiere aprobación humana actualmente; el PR es el mecanismo obligatorio de entrada a `main`.
+
+Una vez aprobados los checks, el merge debe hacerse desde GitHub. Después, actualizar el checkout local:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+git branch -d agent/<cambio-corto>
+git push origin --delete agent/<cambio-corto>
+```
+
 ## Recuperación
 
 - Ver diferencias: `git diff` o `git show <commit>`.
