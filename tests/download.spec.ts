@@ -4,7 +4,8 @@ import { buildDownloadOptions, defaultParams, outputPathFor, parseFormats, parse
 
 test('parses repeated and comma-separated modules', () => {
   expect(parseModules(['orders,quotes', 'clients'])).toEqual(['orders', 'quotes', 'clients']);
-  expect(parseModules(['all'])).toEqual(['orders', 'quotes', 'clients', 'equipment']);
+  expect(parseModules(['all'])).toEqual(['orders', 'quotes', 'clients', 'users', 'sites', 'equipment']);
+  expect(parseModules(['users sites'])).toEqual(['users', 'sites']);
 });
 
 test('parses repeated and comma-separated formats', () => {

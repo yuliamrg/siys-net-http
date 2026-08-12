@@ -13,12 +13,16 @@ export const canonicalEndpoints: EndpointDefinition[] = [
   },
   { module: 'quotes', method: 'GET', path: '/cotizacion' },
   { module: 'clients', method: 'GET', path: '/customer' },
+  { module: 'users', method: 'GET', path: '/user' },
+  { module: 'sites', method: 'GET', path: '/subsidiary' },
   { module: 'equipment', method: 'GET', path: '/equipment' },
 ];
 
 export async function loadEndpointDefinitions(): Promise<EndpointDefinition[]> {
   try {
-    return validateEndpointDefinitions(await readJsonFile<unknown>(endpointConfigPath, 'La configuración de endpoints'));
+    const stored = validateEndpointDefinitions(await readJsonFile<unknown>(endpointConfigPath, 'La configuración de endpoints'));
+    const keys = new Set(stored.map((definition) => `${definition.module} ${definition.path}`));
+    return [...stored, ...canonicalEndpoints.filter((definition) => !keys.has(`${definition.module} ${definition.path}`))];
   } catch (error) {
     const code = error && typeof error === 'object' ? (error as { code?: string }).code : undefined;
     if (code !== 'ENOENT') throw error;

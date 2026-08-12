@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": "1.0",
+  "kind": "read-catalog",
+  "scope": "2026",
+  "apiBase": "https://api.siys.net/api",
+  "readOnly": true,
+  "modules": {
+    "orders": {
+      "method": "GET",
+      "path": "/order/v2",
+      "dataPath": "docs",
+      "pagination": { "pageParam": "page", "pageSizeParam": "limit", "pageSize": 100, "totalPath": "total" }
+    },
+    "quotes": { "method": "GET", "path": "/cotizacion" },
+    "clients": { "method": "GET", "path": "/customer" },
+    "users": { "method": "GET", "path": "/user" },
+    "sites": {
+      "method": "GET",
+      "path": "/subsidiary",
+      "query": { "customer": "required" },
+      "fanOut": { "sourceModule": "clients", "sourceId": "_id" }
+    },
+    "equipment": {
+      "method": "GET",
+      "path": "/equipment",
+      "query": { "customer": "required" },
+      "fanOut": { "sourceModule": "clients", "sourceId": "_id" }
+    }
+  },
+  "invariants": [
+    "La extracción masiva se ejecuta en JSON antes de cualquier conversión a XLSX.",
+    "No se acepta --allow-partial sin autorización explícita.",
+    "No se infieren sedes sin cliente de origen."
+  ]
+}

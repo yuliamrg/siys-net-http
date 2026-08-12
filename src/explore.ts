@@ -48,7 +48,7 @@ async function openHome(page: Page): Promise<void> {
   await page.getByText('Mantenimiento', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
 }
 
-export async function exploreAutonomously(): Promise<void> {
+export async function exploreAutonomously(options: { json?: boolean } = {}): Promise<{ captureFile: string; readOnly: true; modules: ModuleName[] }> {
   await fs.access(storageStatePath).catch(() => {
     throw new Error('No existe una sesion. Ejecuta primero: npm run capture');
   });
@@ -62,27 +62,27 @@ export async function exploreAutonomously(): Promise<void> {
   await openHome(page);
 
   currentModule = 'orders';
-  console.log('Explorando orders...');
+  if (!options.json) console.log('Explorando orders...');
   await clickVisibleText(page, 'Mantenimiento');
   await clickVisibleText(page, 'Ordenes');
   await inspectReadOnlyControls(page);
 
   currentModule = 'quotes';
-  console.log('Explorando quotes...');
+  if (!options.json) console.log('Explorando quotes...');
   await openHome(page);
   await clickVisibleText(page, 'Cotizaciones');
   await clickLastVisibleText(page, 'Cotizaciones');
   await inspectReadOnlyControls(page);
 
   currentModule = 'clients';
-  console.log('Explorando clients...');
+  if (!options.json) console.log('Explorando clients...');
   await openHome(page);
   await clickVisibleText(page, 'Clientes y equipos');
   await clickLastVisibleText(page, 'Clientes');
   await inspectReadOnlyControls(page);
 
   currentModule = 'equipment';
-  console.log('Explorando equipment...');
+  if (!options.json) console.log('Explorando equipment...');
   await openHome(page);
   await clickVisibleText(page, 'Clientes y equipos');
   await clickLastVisibleText(page, 'Clientes');
@@ -95,5 +95,6 @@ export async function exploreAutonomously(): Promise<void> {
   await context.storageState({ path: storageStatePath });
   await context.close();
   await browser.close();
-  console.log(`Captura privada: ${captureFile}`);
+  if (!options.json) console.log(`Captura privada: ${captureFile}`);
+  return { captureFile, readOnly: true, modules: ['orders', 'quotes', 'clients', 'equipment'] };
 }

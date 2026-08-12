@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siys.local/schemas/equipment-export.schema.json",
+  "title": "SIYS equipment export",
+  "type": "array",
+  "items": { "type": "object", "required": ["_endpoint", "_customerId"], "additionalProperties": true }
+}

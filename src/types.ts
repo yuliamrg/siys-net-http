@@ -1,4 +1,4 @@
-export const modules = ['orders', 'quotes', 'clients', 'equipment'] as const;
+export const modules = ['orders', 'quotes', 'clients', 'users', 'sites', 'equipment'] as const;
 export type ModuleName = (typeof modules)[number];
 export const exportFormats = ['json', 'csv', 'xlsx', 'parquet'] as const;
 export type ExportFormat = (typeof exportFormats)[number];

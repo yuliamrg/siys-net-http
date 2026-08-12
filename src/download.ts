@@ -50,7 +50,7 @@ export function parseParams(values: string[]): QueryParams {
 }
 
 function splitOptionValues(values: string[]): string[] {
-  return values.flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
+  return values.flatMap((value) => value.split(/[\s,]+/)).map((value) => value.trim()).filter(Boolean);
 }
 
 export function parseModules(values: string[]): ModuleName[] {
@@ -121,12 +121,13 @@ function rejectTruncation(result: FetchRowsResult, allowPartial: boolean, contex
   }
 }
 
-async function fetchAllEquipment(
-  equipment: EndpointDefinition,
+export async function fetchAllByCustomer(
+  target: EndpointDefinition,
   clients: EndpointDefinition,
   token: string,
   maxPages: number,
   allowPartial: boolean,
+  label: string,
 ): Promise<FetchRowsResult> {
   const customers = await fetchEndpoint(clients, { token, params: {}, maxPages });
   rejectTruncation(customers, allowPartial, 'clientes necesarios para equipos');
@@ -142,8 +143,8 @@ async function fetchAllEquipment(
     const results = await Promise.all(batch.map(async (customer) => {
       const id = customer._id;
       if (typeof id !== 'string') return { rows: [], pagesFetched: 0, truncated: false };
-      const result = await fetchEndpoint(equipment, { token, params: { customer: id }, maxPages });
-      rejectTruncation(result, allowPartial, `equipos del cliente ${id}`);
+      const result = await fetchEndpoint(target, { token, params: { customer: id }, maxPages });
+      rejectTruncation(result, allowPartial, `${label} del cliente ${id}`);
       return result;
     }));
     for (let offset = 0; offset < results.length; offset += 1) {
@@ -174,10 +175,10 @@ async function fetchRows(
 ): Promise<FetchRowsResult> {
   const selected = definitions.filter((definition) => definition.module === module);
   if (selected.length === 0) throw new Error(`No hay endpoint definido para ${module}.`);
-  if (module === 'equipment' && typeof params.customer !== 'string') {
+  if ((module === 'equipment' || module === 'sites') && typeof params.customer !== 'string') {
     const clients = definitions.find((definition) => definition.module === 'clients');
     if (!clients) throw new Error('No existe la definicion del endpoint de clientes.');
-    return fetchAllEquipment(selected[0], clients, token, maxPages, allowPartial);
+    return fetchAllByCustomer(selected[0], clients, token, maxPages, allowPartial, module === 'sites' ? 'sedes' : 'equipos');
   }
   const rows: Record<string, unknown>[] = [];
   let pagesFetched = 0;
