@@ -2,6 +2,19 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la CLI permanezca en `0.x`, una versión minor puede ajustar contratos visibles; cada ajuste se documentará antes del release.
 
+## [Unreleased]
+
+### Añadido
+
+- Caché local SQLite para los seis módulos de lectura, con retención de registros por ID, scopes de consulta y metadatos de paginación.
+- Política cache-first en `download`: 24 horas para catálogos de referencia y 15 minutos para órdenes y cotizaciones; `--refresh` fuerza la consulta remota.
+- Comandos `cache refresh`, `cache status`, `cache search` y `cache resolve`, más `--created-by-name` para resolver el generador desde un catálogo de usuarios vigente.
+- Archivo SQLite de todas las respuestas JSON GET, con `cache search reads` y `cache read` para localizar consultas de detalle y otras lecturas directas.
+
+### Seguridad
+
+- Los registros descargados se sanean antes de exportarlos o guardarlos en SQLite; la caché mantiene datos personales y comerciales, pero redacta contraseñas y credenciales.
+
 ## [0.2.0] - 2026-08-02
 
 ### Añadido

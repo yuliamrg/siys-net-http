@@ -8,6 +8,7 @@ export function isAllowedRequest(method: string, url: string): boolean {
 }
 
 export function redact(value: unknown): unknown {
+  if (typeof value === 'string' && /[?&](?:access[_-]?token|refresh[_-]?token|token|sig|signature|x-(?:amz|goog)-(?:signature|credential))=/i.test(value)) return '[REDACTED]';
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== 'object') return value;
 

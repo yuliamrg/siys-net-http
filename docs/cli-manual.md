@@ -9,6 +9,7 @@ siys download
 Consulta la versión instalada con `siys --version`.
 
 Por defecto descarga todos los modulos en formato XLSX dentro de `exports/`.
+La primera ejecución consulta SIYS y guarda una copia local SQLite. Las siguientes usan esa copia cuando coincide el módulo y los filtros, y su edad está dentro del TTL: 24 horas para catálogos de referencia y 15 minutos para órdenes/cotizaciones. Todas las respuestas JSON GET también se archivan para búsqueda local; estas copias no sustituyen las lecturas que requieren estado vigente. Usa `--refresh` para forzar una lectura remota; las opciones de caché están en [Catálogo local SQLite](catalog-cache.md).
 
 Para mantener el proyecto limpio, usa preferiblemente una carpeta temporal fuera del repositorio:
 
@@ -26,6 +27,8 @@ Las exportaciones pueden existir localmente, pero nunca deben versionarse. Las o
 | Ordenes | `orders` |
 | Cotizaciones | `quotes` |
 | Clientes | `clients` |
+| Usuarios | `users` |
+| Sedes | `sites` |
 | Equipos | `equipment` |
 
 ## Formatos Disponibles
@@ -48,6 +51,7 @@ Las exportaciones pueden existir localmente, pero nunca deben versionarse. Las o
 | `--param <key=value>` | Filtro observado en SIYS. Solo valido con un modulo. Se puede repetir. |
 | `--max-pages <number>` | Limite de paginas para endpoints paginados. Default: `100`. |
 | `--allow-partial` | Autoriza explícitamente exportar resultados potencialmente truncados por `--max-pages`. Sin esta opción la descarga se detiene antes de escribir el archivo. |
+| `--refresh` | Ignora la caché y consulta SIYS para los módulos seleccionados. |
 | `--json` | Imprime resumen estructurado para integracion con otras aplicaciones. |
 | `--no-auto-login` | No intenta login HTTP automatico si falta o falla la sesion. |
 
@@ -144,6 +148,7 @@ La CLI incorpora todos los filtros observados en **SIYS > Mantenimiento > Órden
 | Sucursal | `--subsidiary <id>` | `subsidiary` |
 | Técnico | `--technician <id>` | `user` |
 | Generada por | `--created-by <id>` | `created_by` |
+| Generada por nombre | `--created-by-name <name>` | Resuelve el ID localmente desde `users`. |
 
 Los identificadores corresponden a los valores que selecciona la interfaz de SIYS. Los estados se aceptan por nombre (por ejemplo, `Finalizada`) o por código: Abierta `1`, En ejecución `2`, Finalizada `3`, Pendiente por cotizar `4`, Cotizada `5`, Cerrada `6` y Anulada `0`.
 
@@ -173,6 +178,22 @@ La consulta anterior devolvió tres registros en una sola página durante la val
 ```powershell
 siys export --module clients --format json
 ```
+
+## Catálogo SQLite
+
+```powershell
+siys cache refresh --module all
+siys cache status
+siys cache search users --text "Yuliam Rivera" --json
+siys cache resolve users "Yuliam Rivera" --json
+siys cache search reads --text "mantenimiento" --json
+siys cache read <snapshot-id>
+siys download --module orders --created-by-name "Yuliam Rivera" --state Finalizada --start 2026-08-01 --end 2026-09-23 --format json
+```
+
+`cache search` es local y devuelve candidatos de los datos ya descargados. Para que `cache resolve` y `--created-by-name` elijan un ID, debe existir un catálogo completo y vigente de usuarios. `cache refresh` no crea exportaciones y por defecto actualiza todos los módulos. `cache status` muestra la antigüedad y cobertura. Consulta [Catálogo local SQLite](catalog-cache.md) para límites y políticas de frescura.
+
+`cache search reads` encuentra respuestas JSON GET por texto y muestra su ID de snapshot, endpoint, filtros y fecha. `cache read` imprime esa respuesta saneada. Las copias archivadas son para consulta y búsqueda; los comandos de inspección siguen leyendo SIYS cuando necesitan información actual.
 
 ## Inspeccion de una orden
 

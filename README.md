@@ -14,6 +14,7 @@ npm run build
 npm link
 siys --version
 siys download --module all --format xlsx --out-dir exports
+siys cache search users --text "Yuliam Rivera"
 ```
 
 La skill global `$siys-cli` documenta el uso operativo de este comando desde cualquier carpeta, incluidos filtros, inspección de órdenes y la integración con `$mejorar-ordenes-siys-net`.
@@ -35,6 +36,7 @@ Si se usa `exports/` dentro del proyecto, esa carpeta debe permanecer ignorada y
 | [Instalacion y configuracion](docs/installation.md) | Preparar el proyecto, variables `.env`, build y enlace del comando `siys`. |
 | [Changelog](CHANGELOG.md) | Cambios visibles, seguridad y compatibilidad de cada versión. |
 | [Manual de la CLI](docs/cli-manual.md) | Comandos, opciones, ejemplos y filtros para descargar datos. |
+| [Catálogo local SQLite](docs/catalog-cache.md) | Frescura, actualización y búsqueda local de registros descargados y respuestas JSON GET archivadas. |
 | [Integracion con otras aplicaciones](docs/integration.md) | Como ejecutar la CLI desde otros procesos y consumir la salida `--json`. |
 | [Seguridad y datos locales](docs/security-and-storage.md) | Manejo de credenciales, token, archivos temporales y carpetas no versionadas. |
 | [Comandos de diagnostico](docs/diagnostics.md) | Uso de `capture`, `explore` e `inventory` cuando sea necesario revisar SIYS. |

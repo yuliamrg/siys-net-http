@@ -44,4 +44,4 @@ export const moduleLabels = {
   equipment: /equipo(?:s)?|activo(?:s)?/i,
 } as const;
 
-export const sensitiveKeys = /password|clave|token|authorization|authentication|cookie|secret/i;
+export const sensitiveKeys = /password|passwd|clave|token|authorization|authentication|cookie|secret|credential|api.?key|private.?key|signature|signed.?url|presigned|sas.?token/i;

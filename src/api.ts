@@ -3,6 +3,7 @@ import type { EndpointDefinition } from './types.js';
 import { getByPath } from './utils.js';
 import type { QueryParams } from './order-filters.js';
 import { parseJsonResponse, requestHttp } from './http.js';
+import { saveApiRead } from './cache.js';
 
 export interface FetchOptions {
   token: string;
@@ -39,7 +40,9 @@ async function requestJson(
 
   const operation = `${endpoint.method} ${url.pathname}`;
   const response = await requestHttp(url, { ...init, method: endpoint.method, headers: init.headers as Record<string, string>, body: init.body as string | undefined, timeoutMs: HTTP_TIMEOUT_MS, operation });
-  return parseJsonResponse(response, operation);
+  const payload = parseJsonResponse(response, operation);
+  if (endpoint.method === 'GET') saveApiRead(`${endpoint.path}${url.search}`, payload);
+  return payload;
 }
 
 export async function fetchApiJson<T>(apiPath: string, token: string): Promise<T> {
@@ -51,7 +54,9 @@ export async function fetchApiJson<T>(apiPath: string, token: string): Promise<T
     timeoutMs: HTTP_TIMEOUT_MS,
     operation,
   });
-  return parseJsonResponse<T>(response, operation);
+  const payload = parseJsonResponse<T>(response, operation);
+  saveApiRead(normalizedPath, payload);
+  return payload;
 }
 
 /**

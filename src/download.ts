@@ -5,6 +5,7 @@ import { loadEndpointDefinitions } from './endpoints.js';
 import { exportRows } from './exporters.js';
 import { exportsDir } from './paths.js';
 import { redact } from './security.js';
+import { readFreshCacheSnapshot, saveCacheSnapshot } from './cache.js';
 import { exportFormats, modules, type EndpointDefinition, type ExportFormat, type ModuleName } from './types.js';
 import { timestamp } from './utils.js';
 import type { QueryParams } from './order-filters.js';
@@ -18,6 +19,7 @@ export interface DownloadOptions {
   output?: string;
   autoLogin: boolean;
   allowPartial: boolean;
+  refresh?: boolean;
 }
 
 export interface DownloadResult {
@@ -28,6 +30,8 @@ export interface DownloadResult {
   pagesFetched: number;
   totalAvailable?: number;
   truncated: boolean;
+  source: 'cache' | 'siys';
+  fetchedAt: string;
 }
 
 interface FetchRowsResult {
@@ -94,6 +98,7 @@ export function buildDownloadOptions(options: {
   output?: string;
   autoLogin?: boolean;
   allowPartial?: boolean;
+  refresh?: boolean;
 }): DownloadOptions {
   const selectedModules = parseModules(options.module ?? []);
   const selectedFormats = parseFormats(options.format ?? []);
@@ -112,6 +117,7 @@ export function buildDownloadOptions(options: {
     output: options.output,
     autoLogin: options.autoLogin ?? true,
     allowPartial: options.allowPartial ?? false,
+    refresh: options.refresh ?? false,
   };
 }
 
@@ -194,7 +200,7 @@ async function fetchRows(
     else totalAvailable += endpointResult.totalAvailable;
     rows.push(...endpointResult.rows.map((row) => {
       const record = { _endpoint: endpoint.path, ...row };
-      return module === 'quotes' ? sanitizeQuoteRecord(record) : record;
+      return redact(record) as Record<string, unknown>;
     }));
   }
   return { rows, pagesFetched, totalAvailable: hasTotals ? totalAvailable : undefined, truncated };
@@ -204,28 +210,107 @@ export function outputPathFor(module: ModuleName, format: ExportFormat, options:
   return options.output ?? path.join(options.outDir, `${module}-${stamp}.${format}`);
 }
 
+export interface CacheRefreshOptions {
+  modules: ModuleName[];
+  maxPages: number;
+  autoLogin: boolean;
+  allowPartial: boolean;
+}
+
+export interface CacheRefreshResult {
+  module: ModuleName;
+  records: number;
+  pagesFetched: number;
+  totalAvailable?: number;
+  truncated: boolean;
+  fetchedAt: string;
+}
+
+type ModuleData = FetchRowsResult & { source: 'cache' | 'siys'; fetchedAt: string };
+
+function createRemoteFetcher(autoLogin: boolean) {
+  let definitions: EndpointDefinition[] | undefined;
+  let token: string | undefined;
+  return async (module: ModuleName, params: QueryParams, maxPages: number, allowPartial: boolean): Promise<FetchRowsResult> => {
+    try {
+      if (!definitions) definitions = await loadEndpointDefinitions();
+      if (!token) token = await getAuthenticatedToken(autoLogin);
+      const result = await fetchRows(module, definitions, token, params, maxPages, allowPartial);
+      return { ...result, rows: result.rows.map((row) => redact(row) as Record<string, unknown>) };
+    } catch (error) {
+      if (!autoLogin || !isAuthError(error)) throw error;
+      if (!definitions) definitions = await loadEndpointDefinitions();
+      token = await loginDirect();
+      const result = await fetchRows(module, definitions, token, params, maxPages, allowPartial);
+      return { ...result, rows: result.rows.map((row) => redact(row) as Record<string, unknown>) };
+    }
+  };
+}
+
+async function loadModuleData(
+  module: ModuleName,
+  params: QueryParams,
+  maxPages: number,
+  allowPartial: boolean,
+  forceRefresh: boolean,
+  fetchRemote: ReturnType<typeof createRemoteFetcher>,
+): Promise<ModuleData> {
+  if (!forceRefresh) {
+    const cached = readFreshCacheSnapshot(module, params);
+    if (cached) return { ...cached, source: 'cache' };
+  }
+  const fetched = await fetchRemote(module, params, maxPages, allowPartial);
+  const fetchedAt = new Date().toISOString();
+  saveCacheSnapshot(module, params, fetched.rows, {
+    pagesFetched: fetched.pagesFetched,
+    totalAvailable: fetched.totalAvailable,
+    truncated: fetched.truncated,
+    fetchedAt,
+  });
+  return { ...fetched, source: 'siys', fetchedAt };
+}
+
 export async function downloadData(options: DownloadOptions): Promise<DownloadResult[]> {
-  const definitions = await loadEndpointDefinitions();
-  let token = await getAuthenticatedToken(options.autoLogin);
   const results: DownloadResult[] = [];
   const stamp = timestamp();
+  const fetchRemote = createRemoteFetcher(options.autoLogin);
 
   for (const module of options.modules) {
     const params = { ...defaultParams(module), ...options.params };
-    let fetched: FetchRowsResult;
-    try {
-      fetched = await fetchRows(module, definitions, token, params, options.maxPages, options.allowPartial);
-    } catch (error) {
-      if (!options.autoLogin || !isAuthError(error)) throw error;
-      token = await loginDirect();
-      fetched = await fetchRows(module, definitions, token, params, options.maxPages, options.allowPartial);
-    }
-
+    const fetched = await loadModuleData(module, params, options.maxPages, options.allowPartial, options.refresh ?? false, fetchRemote);
     for (const format of options.formats) {
       const output = outputPathFor(module, format, options, stamp);
       await exportRows(fetched.rows, format, output);
-      results.push({ module, format, records: fetched.rows.length, output, pagesFetched: fetched.pagesFetched, totalAvailable: fetched.totalAvailable, truncated: fetched.truncated });
+      results.push({
+        module,
+        format,
+        records: fetched.rows.length,
+        output,
+        pagesFetched: fetched.pagesFetched,
+        totalAvailable: fetched.totalAvailable,
+        truncated: fetched.truncated,
+        source: fetched.source,
+        fetchedAt: fetched.fetchedAt,
+      });
     }
+  }
+  return results;
+}
+
+export async function refreshCacheData(options: CacheRefreshOptions): Promise<CacheRefreshResult[]> {
+  const fetchRemote = createRemoteFetcher(options.autoLogin);
+  const results: CacheRefreshResult[] = [];
+  for (const module of options.modules) {
+    const params = defaultParams(module);
+    const fetched = await loadModuleData(module, params, options.maxPages, options.allowPartial, true, fetchRemote);
+    results.push({
+      module,
+      records: fetched.rows.length,
+      pagesFetched: fetched.pagesFetched,
+      totalAvailable: fetched.totalAvailable,
+      truncated: fetched.truncated,
+      fetchedAt: fetched.fetchedAt,
+    });
   }
   return results;
 }
