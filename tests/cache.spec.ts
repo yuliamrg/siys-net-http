@@ -14,7 +14,7 @@ import {
   saveCacheSnapshot,
   searchCacheRecords,
 } from '../src/cache.js';
-import { downloadData } from '../src/download.js';
+import { downloadData, type DownloadOptions } from '../src/download.js';
 
 function withCacheEnvironment<T>(run: (root: string) => Promise<T> | T): Promise<T> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siys-cache-test-'));
@@ -150,9 +150,9 @@ test('download uses a fresh snapshot and --refresh forces a new SIYS read', asyn
         headers: { 'content-type': 'application/json' },
       });
     };
-    const options = {
-      modules: ['users'] as const,
-      formats: ['json'] as const,
+    const options: DownloadOptions = {
+      modules: ['users'],
+      formats: ['json'],
       params: {},
       maxPages: 10,
       outDir: path.join(root, 'exports'),
