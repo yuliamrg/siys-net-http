@@ -24,6 +24,7 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "better-sqlite3": "^12.4.1",
     "commander": "^14.0.2",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@playwright/test": "^1.60.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.10.1",
     "eslint": "10.8.0",
     "tsx": "^4.20.6",

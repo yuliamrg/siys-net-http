@@ -12,9 +12,18 @@ La CLI trabaja con informacion sensible. Estas reglas evitan subir credenciales,
 | `private/captures/` | Capturas privadas de exploracion. | No |
 | `private/responses/` | Respuestas privadas de API. | No |
 | `exports/` | Datos descargados de SIYS. | No |
+| `%LOCALAPPDATA%\SIYS\cache\*.sqlite3` | Catálogo local con registros personales y comerciales y respuestas JSON GET saneadas; no guarda contraseñas, tokens ni credenciales. | No |
 | `C:\Users\CoordServicio\OneDrive - Siys\ordenes-siys\` | Snapshots, evidencia, revisiones y auditorias de ordenes. | No |
 
 Estas rutas estan cubiertas por `.gitignore`.
+
+## Catálogo SQLite
+
+La caché se guarda por defecto fuera del repositorio y OneDrive, en el perfil local de Windows. Conserva los campos personales y comerciales de los registros descargados para acelerar búsquedas posteriores. No está cifrada por la CLI; hereda los permisos del usuario de Windows. No apuntes `SIYS_CACHE_DIR` a una ubicación compartida sin querer compartir esos datos.
+
+La caché guarda órdenes, cotizaciones, usuarios, clientes, sedes y equipos con filtros, conteos y fecha de consulta. También conserva la última respuesta JSON de cada endpoint GET y combinación de filtros para consulta manual. Las claves con nombres de contraseñas, tokens, autenticación, cookies, credenciales o firmas se redactan antes de almacenar, al igual que valores URL con firmas sensibles. La sesión HTTP continúa en `private/storage-state.json`, separada de SQLite. `SIYS_CACHE_PROFILE` separa bases locales para identidades distintas y `SIYS_CACHE_DIR` permite cambiar la carpeta raíz.
+
+Usa `siys cache status` para ver la ruta y frescura. Para buscar sin red, `siys cache search <modulo> --text <texto>` encuentra candidatos de registros descargados; `siys cache search reads --text <texto>` encuentra respuestas JSON GET archivadas y `siys cache read <snapshot-id>` imprime una copia local saneada. La búsqueda local puede cubrir solo los filtros y periodos consultados previamente. Las respuestas archivadas no sustituyen lecturas remotas cuando se necesita estado vigente. `siys download --refresh` fuerza una lectura nueva de SIYS. Antes de modificar una orden, inspecciona la orden vigente y continúa con el flujo de revisión aprobado.
 
 ## Biblioteca de ordenes
 

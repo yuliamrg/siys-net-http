@@ -5,6 +5,8 @@ import { Command } from 'commander';
 import { CommanderError } from 'commander';
 import { loginDirect, tokenExpiration, tokenIssuedAt } from './auth.js';
 import { buildDownloadOptions, downloadData } from './download.js';
+import { addCacheCommands } from './cache-commands.js';
+import { resolveCachedName } from './cache.js';
 import { inspectionOutputPath, inspectOrder, writeInspection } from './order-inspect.js';
 import { applyAuditOutputPath, applyReview, writeApplyAudit } from './order-review.js';
 import { exportsDir, storageStatePath } from './paths.js';
@@ -48,15 +50,20 @@ async function runDownload(rawOptions: {
   subsidiary?: string;
   technician?: string;
   createdBy?: string;
+  createdByName?: string;
   allowPartial?: boolean;
+  refresh?: boolean;
 }): Promise<void> {
-  const usesOrderFilters = [rawOptions.orderCode, rawOptions.orderType, rawOptions.cause, rawOptions.rootCause, rawOptions.start, rawOptions.end, rawOptions.state, rawOptions.invoiced, rawOptions.customer, rawOptions.subsidiary, rawOptions.technician, rawOptions.createdBy].some((value) => value !== undefined);
+  if (rawOptions.createdBy && rawOptions.createdByName) throw new Error('Usa --created-by o --created-by-name, no ambos.');
+  const usesOrderFilters = [rawOptions.orderCode, rawOptions.orderType, rawOptions.cause, rawOptions.rootCause, rawOptions.start, rawOptions.end, rawOptions.state, rawOptions.invoiced, rawOptions.customer, rawOptions.subsidiary, rawOptions.technician, rawOptions.createdBy, rawOptions.createdByName].some((value) => value !== undefined);
   if (usesOrderFilters && (rawOptions.module?.length !== 1 || rawOptions.module[0] !== 'orders')) {
     throw new Error('Los filtros de órdenes requieren --module orders.');
   }
+  const resolvedCreator = rawOptions.createdByName ? resolveCachedName('users', rawOptions.createdByName) : undefined;
+  const createdBy = rawOptions.createdBy ?? resolvedCreator?.id;
   const today = new Date().toISOString().slice(0, 10);
   const orderParams = usesOrderFilters
-    ? buildOrderFilterParams({ code: rawOptions.orderCode, type: rawOptions.orderType, cause: rawOptions.cause, rootCause: rawOptions.rootCause, start: rawOptions.start ?? `${today.slice(0, 4)}-01-01`, end: rawOptions.end ?? today, state: rawOptions.state, invoiced: rawOptions.invoiced, customer: rawOptions.customer, subsidiary: rawOptions.subsidiary, technician: rawOptions.technician, createdBy: rawOptions.createdBy })
+    ? buildOrderFilterParams({ code: rawOptions.orderCode, type: rawOptions.orderType, cause: rawOptions.cause, rootCause: rawOptions.rootCause, start: rawOptions.start ?? `${today.slice(0, 4)}-01-01`, end: rawOptions.end ?? today, state: rawOptions.state, invoiced: rawOptions.invoiced, customer: rawOptions.customer, subsidiary: rawOptions.subsidiary, technician: rawOptions.technician, createdBy })
     : undefined;
   const options = buildDownloadOptions({
     module: rawOptions.module,
@@ -68,6 +75,7 @@ async function runDownload(rawOptions: {
     output: rawOptions.output,
     autoLogin: !rawOptions.noAutoLogin,
     allowPartial: rawOptions.allowPartial,
+    refresh: rawOptions.refresh,
   });
   const results = await downloadData(options);
   if (rawOptions.json) {
@@ -75,7 +83,8 @@ async function runDownload(rawOptions: {
     return;
   }
   for (const result of results) {
-    console.log(`Exportados ${result.records} registros de ${result.module} a ${result.output}`);
+    const source = result.source === 'cache' ? `cache local (${result.fetchedAt})` : 'SIYS';
+    console.log(`Exportados ${result.records} registros de ${result.module} desde ${source} a ${result.output}`);
   }
 }
 
@@ -277,6 +286,8 @@ function addDownloadOptions(command: Command): Command {
     .option('--subsidiary <id>', 'Filtro de órdenes: ID de sucursal.')
     .option('--technician <id>', 'Filtro de órdenes: ID de técnico.')
     .option('--created-by <id>', 'Filtro de órdenes: ID del usuario que la generó.')
+    .option('--created-by-name <name>', 'Resuelve el generador desde un catálogo local users vigente.')
+    .option('--refresh', 'Consulta SIYS aunque haya una copia local vigente para esos filtros.')
     .option('--max-pages <number>', 'Limite de paginas.', parsePositiveInteger, 100)
     .option('--allow-partial', 'Permite exportar explícitamente resultados potencialmente truncados por --max-pages.')
     .option('--out-dir <dir>', 'Carpeta destino.', 'exports')
@@ -305,9 +316,10 @@ const program = new Command();
 program.name('siys').description('CLI para descargar datos de SIYS por HTTP directo.').version(packageVersion).option('--debug', 'Muestra la traza interna de errores en stderr.');
 program.exitOverride();
 program.configureOutput({ writeErr: () => undefined });
+addCacheCommands(program);
 program.command('login').description('Autentica por HTTP directo y guarda la sesion local sin abrir navegador.').action(runLogin);
-addDownloadOptions(program.command('download').description('Descarga uno o varios modulos en uno o varios formatos.')).action(runDownload);
-addDownloadOptions(program.command('export').description('Alias compatible de download.')).action(runDownload);
+addDownloadOptions(program.command('download').description('Exporta módulos usando primero la caché local vigente; --refresh fuerza SIYS.')).action(runDownload);
+addDownloadOptions(program.command('export').description('Alias compatible de download con caché local.')).action(runDownload);
 program.command('capture').description('Abre Chromium para captura asistida y guarda la sesion local.').action(runCapture);
 program.command('explore').description('Recorre en modo lectura los módulos visibles y guarda una captura técnica.').option('--json', 'Imprime el resultado en JSON.').action(runExplore);
 program.command('inventory').description('Genera inventario sanitizado y candidatos de endpoints.').option('--json', 'Imprime el inventario en JSON.').action(runInventory);

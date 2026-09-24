@@ -4,6 +4,8 @@
 
 La extracción de referencia se limita a 2026 para `orders` y `quotes`. `clients`, `users`, `sites` y `equipment` son catálogos vigentes consultados durante la misma ejecución; se conservan con una marca de extracción para saber cuándo refrescarlos.
 
+Además de las exportaciones, `siys download` mantiene una caché SQLite local reutilizable. La caché almacena los seis módulos descargados con sus filtros y metadatos de paginación. Consulta [Catálogo local SQLite](catalog-cache.md) para los TTL, las búsquedas locales y la resolución de IDs.
+
 Ejemplo seguro, guardando únicamente JSON:
 
 ```powershell

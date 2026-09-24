@@ -6,6 +6,7 @@ Lee los documentos segun la necesidad:
 | --- | --- |
 | Instalar la herramienta | [installation.md](installation.md) |
 | Aprender comandos y opciones | [cli-manual.md](cli-manual.md) |
+| Buscar y actualizar la caché local | [catalog-cache.md](catalog-cache.md) |
 | Usarla desde otra aplicacion | [integration.md](integration.md) |
 | Entender credenciales y archivos locales | [security-and-storage.md](security-and-storage.md) |
 | Diagnosticar cambios de SIYS | [diagnostics.md](diagnostics.md) |

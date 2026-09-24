@@ -22,7 +22,9 @@ Salida esperada:
       "output": "data\\clients-2026-06-16T03-15-23-225Z.json",
       "pagesFetched": 1,
       "totalAvailable": 86,
-      "truncated": false
+      "truncated": false,
+      "source": "siys",
+      "fetchedAt": "2026-09-23T20:21:56.685Z"
     }
   ]
 }
@@ -39,6 +41,8 @@ Cada elemento de `results` indica:
 | `pagesFetched` | Cantidad de páginas consultadas. |
 | `totalAvailable` | Total informado por SIYS, cuando el endpoint lo proporciona. |
 | `truncated` | `true` únicamente cuando se autorizó una salida parcial. |
+| `source` | `siys` cuando se consultó la API o `cache` cuando se reutilizó una copia vigente. |
+| `fetchedAt` | Momento UTC en que SIYS entregó el snapshot; en un acierto indica la fecha original cacheada. |
 
 ## Ejemplo Desde Node.js
 
@@ -92,6 +96,7 @@ Cuando se use desde otra aplicacion, captura `stderr` y el codigo de salida para
 - Usa `--json` siempre que la CLI sea llamada por otra aplicacion.
 - Usa `--out-dir` con una carpeta controlada por la aplicacion llamadora.
 - Usa `--output` solo si descargas un modulo y un formato.
+- Considera `source` y `fetchedAt` al interpretar el resumen; usa `--refresh` si el consumidor exige una consulta nueva a SIYS.
 - No dependas del texto normal de consola; ese texto es para uso humano.
 - No guardes credenciales en argumentos de terminal. Usa `.env` o variables de entorno del proceso.
 
