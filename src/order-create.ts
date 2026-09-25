@@ -186,6 +186,10 @@ function normalizeName(value: string): string {
     .replace(/[-_/]+/g, ' ').replace(/\s+/g, ' ');
 }
 
+function normalizeEquipmentName(value: string): string {
+  return normalizeName(value).replace(/#/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function exclusiveString(input: JsonRecord, idKey: string, nameKey: string, label: string): { id?: string; name?: string } {
   const hasId = Object.hasOwn(input, idKey);
   const hasName = Object.hasOwn(input, nameKey);
@@ -203,7 +207,7 @@ function exclusiveStringArray(input: JsonRecord, idsKey: string, namesKey: strin
   const names = stringArray(input[namesKey], namesKey);
   const seen = new Set<string>();
   for (const name of names) {
-    const normalized = normalizeName(name);
+    const normalized = normalizeEquipmentName(name);
     if (!normalized) throw new Error(`${namesKey} contiene un nombre vacio.`);
     if (seen.has(normalized)) throw new Error(`${namesKey} contiene el nombre duplicado "${name}" despues de normalizar.`);
     seen.add(normalized);
@@ -254,7 +258,7 @@ function parseRequest(value: unknown): OrderCreateRequest {
     exactKeys(row, SCHEDULE_KEYS, `schedule[${index}]`);
     const start = parseLocal(row.startLocal, `schedule[${index}].startLocal`);
     const end = parseLocal(row.endLocal, `schedule[${index}].endLocal`);
-    if (start.epochUtc >= end.epochUtc) throw new Error(`schedule[${index}] debe terminar despues de iniciar.`);
+    if (start.epochUtc > end.epochUtc) throw new Error(`schedule[${index}] no puede terminar antes de iniciar.`);
     const technician = exclusiveString(row, 'technicianId', 'technicianName', `El tecnico de schedule[${index}]`);
     return {
       startLocal: start.local, endLocal: end.local,
@@ -383,11 +387,11 @@ function matchingDisplayName(item: JsonRecord, requested: string | undefined, fi
   return nameOf(item, fallback);
 }
 
-function findEntityByName(items: JsonRecord[], requested: string, label: string, fields: string[], context?: string): JsonRecord {
-  const wanted = normalizeName(requested);
+function findEntityByName(items: JsonRecord[], requested: string, label: string, fields: string[], context?: string, normalizer = normalizeName): JsonRecord {
+  const wanted = normalizer(requested);
   const matches = items.filter((item) => fields.some((field) => {
     const value = item[field];
-    return typeof value === 'string' && normalizeName(value) === wanted;
+    return typeof value === 'string' && normalizer(value) === wanted;
   }));
   const scope = context ? ` ${context}` : '';
   if (!matches.length) throw new Error(`${label} con nombre exacto "${requested}" no existe${scope}.`);
@@ -531,7 +535,7 @@ async function simulateWithToken(file: string, sourceSha256: string, request: Or
   const equipmentSelectors = request.equipmentIds ?? request.equipmentNames ?? [];
   const equipments = equipmentSelectors.map((selector) => request.equipmentIds
     ? findEntity(equipmentCatalog, selector, 'El equipo activo')
-    : findEntityByName(equipmentCatalog, selector, 'El equipo activo', ['name'], `de la sede "${nameOf(subsidiary, subsidiaryId)}" (ID: ${subsidiaryId})`));
+    : findEntityByName(equipmentCatalog, selector, 'El equipo activo', ['name'], `de la sede "${nameOf(subsidiary, subsidiaryId)}" (ID: ${subsidiaryId})`, normalizeEquipmentName));
   const equipmentIds = equipments.map((item) => resolvedId(item, 'El equipo activo'));
   const userCatalog = list(userResponse, 'usuarios');
   const techniciansBySchedule = request.schedule.map((row) => {

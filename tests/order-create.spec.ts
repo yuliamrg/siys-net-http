@@ -351,6 +351,59 @@ test('resolves normalized human names through scoped catalogs and keeps IDs in t
   await fs.rm(fixture.directory, { recursive: true, force: true });
 });
 
+test('resolves only mechanical equipment separator variants and keeps point schedules in the name-based flow', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const equipmentNames = ['UMA 3', 'UMA-3', 'UMA #3', 'UMA#3', 'uma # 3'];
+  for (const equipmentName of equipmentNames) {
+    const fixture = await requestFile({
+      ...nameRequestOverrides(),
+      equipmentNames: [equipmentName],
+      schedule: [{ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T08:00:00', technicianName: 'heiner sebastian' }],
+    });
+    mockNameCatalogs({ equipment: [{ _id: 'equipment-name-id', name: 'UMA-3' }] });
+
+    const simulation = await simulateOrderCreate(fixture.file, { autoLogin: false });
+
+    expect(simulation.resolved.equipments).toEqual([{ id: 'equipment-name-id', name: 'UMA-3' }]);
+    expect(simulation.request.schedule[0]).toEqual(expect.objectContaining({ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T08:00:00' }));
+    expect(simulation.payload.dates).toEqual([{ start: '2026-08-03T13:00:00.000Z', end: '2026-08-03T13:00:00.000Z', user: 'technician-name-id' }]);
+    await fs.rm(fixture.directory, { recursive: true, force: true });
+  }
+
+  for (const unsupportedName of ['UMA03', 'Unidad Manejadora 3']) {
+    const fixture = await requestFile({ ...nameRequestOverrides(), equipmentNames: [unsupportedName] });
+    mockNameCatalogs({ equipment: [{ _id: 'equipment-name-id', name: 'UMA#3' }] });
+    await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(/equipo activo con nombre exacto.*no existe/i);
+    await fs.rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('accepts equal point-schedule times for ID-only selectors and preserves the payload', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile({ schedule: [{ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T08:00:00', technicianId: 'technician-1' }] });
+  const calls = mockCatalogs();
+
+  const simulation = await simulateOrderCreate(fixture.file, { autoLogin: false });
+
+  expect(simulation.payload.dates).toEqual([{ start: '2026-08-03T13:00:00.000Z', end: '2026-08-03T13:00:00.000Z', user: 'technician-1' }]);
+  expect(simulation.availability).toEqual([expect.objectContaining({ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T08:00:00', available: true })]);
+  expect(calls.find((call) => call.url.includes('/itAvailable?'))?.url).toContain('end=2026-08-03T08%3A00%3A00-05%3A00');
+  expect(calls.every((call) => call.method === 'GET')).toBe(true);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('rejects a point schedule whose end is before its start', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return response({}); };
+  const fixture = await requestFile({ schedule: [{ startLocal: '2026-08-03T08:30:00', endLocal: '2026-08-03T08:00:00', technicianId: 'technician-1' }] });
+
+  await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(/no puede terminar antes de iniciar/);
+
+  expect(calls).toBe(0);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
 test('rejects zero and multiple normalized customer name matches with candidate IDs', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const missing = await requestFile(nameRequestOverrides());
