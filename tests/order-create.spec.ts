@@ -237,6 +237,48 @@ test('confirmed execution repeats preflight and sends exactly one contracted POS
   await fs.rm(fixture.directory, { recursive: true, force: true });
 });
 
+test('confirmed preflight blocks a point-schedule availability race without reserving or posting', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile({
+    status: 'approved',
+    schedule: [{ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T08:00:00', technicianId: 'technician-1' }],
+  });
+  const contract = await contractFile(fixture.directory);
+  const calls = mockCatalogs();
+  const catalogFetch = global.fetch;
+  let availabilityReads = 0;
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes('/itAvailable?')) {
+      calls.push({ url, method: init?.method });
+      availabilityReads += 1;
+      return response({ available: availabilityReads === 1 });
+    }
+    if (init?.method === 'POST') {
+      calls.push({ url, method: init.method });
+      return response({ _id: 'unexpected-order', code: 38 });
+    }
+    return catalogFetch(input, init);
+  };
+
+  const initialDryRun = await simulateOrderCreate(fixture.file, { autoLogin: false });
+  expect(initialDryRun.availability[0]?.available).toBe(true);
+  expect(initialDryRun.validation.ready).toBe(true);
+
+  const receiptDir = path.join(fixture.directory, 'receipts');
+  await expect(executeOrderCreate(fixture.file, {
+    confirm: true, contractPath: contract, autoLogin: false, receiptDir,
+  })).rejects.toThrow(/prevalidacion bloquea la creacion.*no disponible/i);
+
+  expect(availabilityReads).toBe(2);
+  expect(calls.filter((call) => call.url.includes('/itAvailable?'))).toHaveLength(2);
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0);
+  expect(calls.filter((call) => new URL(call.url).pathname === '/api/order')).toHaveLength(0);
+  const receiptDirExists = await fs.access(receiptDir).then(() => true, () => false);
+  expect(receiptDirExists).toBe(false);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
 test('records timeout as ambiguous and never retries the POST', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const fixture = await requestFile({ status: 'approved' });
