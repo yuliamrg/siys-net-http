@@ -500,14 +500,16 @@ export async function executeOrderCreate(file: string, options: ExecuteOrderCrea
     response = await sendApiJson<unknown>(contract.path, token, contract.method, simulation.payload, options.timeoutMs);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    audit.status = /\bHTTP \d{3}\b|^\d{3}\s/.test(message) ? 'failed' : 'ambiguous';
+    const httpStatus = message.match(/\bHTTP (\d{3})\b|^(\d{3})\s/);
+    const statusCode = Number(httpStatus?.[1] ?? httpStatus?.[2]);
+    audit.status = statusCode >= 400 && statusCode < 500 ? 'failed' : 'ambiguous';
     audit.updatedAt = new Date().toISOString();
     audit.attempt.finishedAt = audit.updatedAt;
     audit.attempt.error = message;
     receipt.status = audit.status; receipt.updatedAt = audit.updatedAt; receipt.error = message;
     try { await updateReceipt(receiptFile, receipt); } catch { /* The reserved receipt still blocks a replay. */ }
     try { await options.onProgress?.(audit); } catch { /* Preserve the original POST outcome. */ }
-    const wrapped = new Error(`${message} Estado de creación: ${audit.status}; no reintentar.`) as Error & { orderCreateAudit?: OrderCreateAudit };
+    const wrapped = new Error(`${message} Estado de creación: ${audit.status}; no reintentar automáticamente ni repetir el POST.`) as Error & { orderCreateAudit?: OrderCreateAudit };
     wrapped.orderCreateAudit = audit;
     throw wrapped;
   }

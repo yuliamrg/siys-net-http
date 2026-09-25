@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOGIN_URL } from '../src/config.js';
-import { isAllowedRequest, parseBody, redact } from '../src/security.js';
+import { isAllowedRequest, parseBody, redact, redactUrl } from '../src/security.js';
 
 test('allows read methods and the login request', () => {
   expect(isAllowedRequest('GET', 'https://api.siys.net/api/orders')).toBe(true);
@@ -26,4 +26,9 @@ test('redacts secrets recursively', () => {
     email: 'a@example.com',
     password: '[REDACTED]',
   });
+});
+
+test('redacts sensitive URL query values while keeping ordinary parameters', () => {
+  expect(redactUrl('https://api.siys.net/api/file?token=synthetic-token&name=test&X-Amz-Signature=signed-secret'))
+    .toBe('https://api.siys.net/api/file?token=%5BREDACTED%5D&name=test&X-Amz-Signature=%5BREDACTED%5D');
 });

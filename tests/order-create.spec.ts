@@ -229,6 +229,61 @@ test('records timeout as ambiguous and never retries the POST', async () => {
   await fs.rm(fixture.directory, { recursive: true, force: true });
 });
 
+test('records HTTP 500 as ambiguous with one POST and keeps its reserved receipt', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile({ status: 'approved' });
+  const contract = await contractFile(fixture.directory);
+  const receiptDir = path.join(fixture.directory, 'receipts');
+  const calls = mockCatalogs();
+  const catalogFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    if (init?.method !== 'POST') return catalogFetch(input, init);
+    calls.push({ url: String(input), method: init.method });
+    return response({ error: 'synthetic server failure' }, 500);
+  };
+
+  let captured: (Error & { orderCreateAudit?: { status: string; attempt: { retryAllowed: boolean } } }) | undefined;
+  try {
+    await executeOrderCreate(fixture.file, { confirm: true, contractPath: contract, autoLogin: false, receiptDir });
+  } catch (error) { captured = error as typeof captured; }
+
+  expect(captured?.message).toMatch(/ambiguous; no reintentar automáticamente/i);
+  expect(captured?.orderCreateAudit).toEqual(expect.objectContaining({
+    status: 'ambiguous', attempt: expect.objectContaining({ retryAllowed: false }),
+  }));
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
+  const receiptFiles = await fs.readdir(receiptDir);
+  expect(receiptFiles).toHaveLength(1);
+  const receipt = JSON.parse(await fs.readFile(path.join(receiptDir, receiptFiles[0]!), 'utf8')) as { status: string };
+  expect(receipt.status).toBe('ambiguous');
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('keeps HTTP 400 as failed and does not retry the POST', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile({ status: 'approved' });
+  const contract = await contractFile(fixture.directory);
+  const calls = mockCatalogs();
+  const catalogFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    if (init?.method !== 'POST') return catalogFetch(input, init);
+    calls.push({ url: String(input), method: init.method });
+    return response({ error: 'synthetic client failure' }, 400);
+  };
+
+  let captured: (Error & { orderCreateAudit?: { status: string; attempt: { retryAllowed: boolean } } }) | undefined;
+  try {
+    await executeOrderCreate(fixture.file, { confirm: true, contractPath: contract, autoLogin: false, receiptDir: path.join(fixture.directory, 'receipts') });
+  } catch (error) { captured = error as typeof captured; }
+
+  expect(captured?.message).toMatch(/failed; no reintentar automáticamente/i);
+  expect(captured?.orderCreateAudit).toEqual(expect.objectContaining({
+    status: 'failed', attempt: expect.objectContaining({ retryAllowed: false }),
+  }));
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
 test('writes an atomic audit without authentication secrets', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const fixture = await requestFile({ status: 'approved' });

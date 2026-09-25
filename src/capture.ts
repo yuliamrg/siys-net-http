@@ -4,7 +4,7 @@ import readline from 'node:readline/promises';
 import { chromium, type BrowserContext, type Page, type Request } from '@playwright/test';
 import { API_URL, BASE_URL, LOGIN_URL, moduleLabels } from './config.js';
 import { capturesDir, responsesDir, storageStatePath } from './paths.js';
-import { isAllowedRequest, parseBody } from './security.js';
+import { isAllowedRequest, parseBody, redact, redactUrl } from './security.js';
 import type { CaptureRecord, ModuleName } from './types.js';
 import { ensureDir, timestamp } from './utils.js';
 
@@ -18,7 +18,7 @@ function classifyModule(pageUrl: string, requestUrl: string): ModuleName | 'unkn
 
 function safeFileName(url: string): string {
   const parsed = new URL(url);
-  const base = `${parsed.pathname}${parsed.search}`
+  const base = parsed.pathname
     .replace(/[^a-z0-9]+/gi, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 120);
@@ -45,10 +45,11 @@ export async function installRecorder(
   context: BrowserContext,
   sessionName: string,
   moduleHint?: () => ModuleName | 'unknown',
+  outputDirectories: { captures: string; responses: string } = { captures: capturesDir, responses: responsesDir },
 ): Promise<string> {
-  await ensureDir(capturesDir);
-  await ensureDir(responsesDir);
-  const captureFile = path.join(capturesDir, `${sessionName}.ndjson`);
+  await ensureDir(outputDirectories.captures);
+  await ensureDir(outputDirectories.responses);
+  const captureFile = path.join(outputDirectories.captures, `${sessionName}.ndjson`);
   const pending = new Map<Request, CaptureRecord>();
 
   context.on('request', (request) => {
@@ -56,10 +57,10 @@ export async function installRecorder(
     const pageUrl = request.frame()?.page()?.url() ?? '';
     pending.set(request, {
       capturedAt: new Date().toISOString(),
-      pageUrl,
+      pageUrl: redactUrl(pageUrl),
       module: moduleHint?.() ?? classifyModule(pageUrl, request.url()),
       method: request.method(),
-      url: request.url(),
+      url: redactUrl(request.url()),
       resourceType: request.resourceType(),
       requestBody: parseBody(request.postData()),
     });
@@ -72,21 +73,26 @@ export async function installRecorder(
     void appendRecord(captureFile, { ...record, failure: request.failure()?.errorText ?? 'unknown' });
   });
 
-  context.on('response', (response) => {
+  context.on('response', async (response) => {
     const request = response.request();
     const record = pending.get(request);
     if (!record) return;
     pending.delete(request);
-    void (async () => {
+    await (async () => {
       const contentType = response.headers()['content-type'] ?? '';
       let responseBodyFile: string | undefined;
-      if (/json|xml|text\/plain/i.test(contentType) && response.status() < 400) {
+      if (request.url() !== LOGIN_URL && /json|xml|text\/plain/i.test(contentType) && response.status() < 400) {
         try {
           const body = await response.body();
           const fileName = `${sessionName}-${timestamp()}-${safeFileName(request.url())}`;
           const extension = /json/i.test(contentType) ? 'json' : /xml/i.test(contentType) ? 'xml' : 'txt';
-          responseBodyFile = path.join(responsesDir, `${fileName}.${extension}`);
-          await fs.writeFile(responseBodyFile, body);
+          responseBodyFile = path.join(outputDirectories.responses, `${fileName}.${extension}`);
+          if (/json/i.test(contentType)) {
+            const parsed = JSON.parse(body.toString('utf8')) as unknown;
+            await fs.writeFile(responseBodyFile, `${JSON.stringify(redact(parsed), null, 2)}\n`, 'utf8');
+          } else {
+            await fs.writeFile(responseBodyFile, body);
+          }
         } catch {
           // Redirects and streamed responses may not expose a body.
         }
