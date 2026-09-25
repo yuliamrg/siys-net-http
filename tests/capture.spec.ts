@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { BrowserContext, Request } from '@playwright/test';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { API_URL, LOGIN_URL } from '../src/config.js';
 import { installRecorder } from '../src/capture.js';
 

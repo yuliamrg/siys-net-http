@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { canonicalEndpoints, validateEndpointDefinitions } from '../src/endpoints.js';
 
 test('ships canonical endpoint definitions for clean installs', () => {

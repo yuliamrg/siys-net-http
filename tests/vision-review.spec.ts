@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { buildVisionReview } from '../src/vision-review.js';
 
 test('creates a traceable proposal only for generic activities with high-confidence visual facts', async () => {

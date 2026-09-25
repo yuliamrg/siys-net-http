@@ -13,19 +13,24 @@ type JsonRecord = Record<string, unknown>;
 export interface OrderCreateScheduleInput {
   startLocal: string;
   endLocal: string;
-  technicianId: string;
+  technicianId?: string;
+  technicianName?: string;
 }
 
 export interface OrderCreateRequest {
   schemaVersion: '1.0';
   status: 'draft' | 'approved';
   mode: 'manual';
-  customerId: string;
-  subsidiaryId: string;
-  orderTypeId: string;
+  customerId?: string;
+  customerName?: string;
+  subsidiaryId?: string;
+  subsidiaryName?: string;
+  orderTypeId?: string;
+  orderTypeName?: string;
   material: string;
   observations: string;
-  equipmentIds: string[];
+  equipmentIds?: string[];
+  equipmentNames?: string[];
   schedule: OrderCreateScheduleInput[];
   timeZone: 'America/Bogota';
   allowNoEquipment?: true;
@@ -143,10 +148,11 @@ export interface OrderCreateReceipt {
 }
 
 const ROOT_KEYS = new Set([
-  'schemaVersion', 'status', 'mode', 'customerId', 'subsidiaryId', 'orderTypeId', 'material',
-  'observations', 'equipmentIds', 'schedule', 'timeZone', 'allowNoEquipment',
+  'schemaVersion', 'status', 'mode', 'customerId', 'customerName', 'subsidiaryId', 'subsidiaryName',
+  'orderTypeId', 'orderTypeName', 'material', 'observations', 'equipmentIds', 'equipmentNames',
+  'schedule', 'timeZone', 'allowNoEquipment',
 ]);
-const SCHEDULE_KEYS = new Set(['startLocal', 'endLocal', 'technicianId']);
+const SCHEDULE_KEYS = new Set(['startLocal', 'endLocal', 'technicianId', 'technicianName']);
 const FORBIDDEN_KEYS = new Set(['plan', 'period', 'tasks', 'created_by', 'createdBy', 'code', 'state', 'users', 'dates']);
 
 function record(value: unknown, label: string): JsonRecord {
@@ -173,6 +179,36 @@ function unique(values: string[], label: string): string[] {
   const duplicated = values.find((value, index) => values.indexOf(value) !== index);
   if (duplicated) throw new Error(`${label} contiene el ID duplicado ${duplicated}.`);
   return values;
+}
+
+function normalizeName(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    .replace(/[-_/]+/g, ' ').replace(/\s+/g, ' ');
+}
+
+function exclusiveString(input: JsonRecord, idKey: string, nameKey: string, label: string): { id?: string; name?: string } {
+  const hasId = Object.hasOwn(input, idKey);
+  const hasName = Object.hasOwn(input, nameKey);
+  if (hasId && hasName) throw new Error(`${label} no puede especificarse simultaneamente con ${idKey} y ${nameKey}.`);
+  if (!hasId && !hasName) throw new Error(`${label} requiere ${idKey} o ${nameKey}.`);
+  return hasId ? { id: requiredString(input[idKey], idKey) } : { name: requiredString(input[nameKey], nameKey) };
+}
+
+function exclusiveStringArray(input: JsonRecord, idsKey: string, namesKey: string, label: string): { ids?: string[]; names?: string[] } {
+  const hasIds = Object.hasOwn(input, idsKey);
+  const hasNames = Object.hasOwn(input, namesKey);
+  if (hasIds && hasNames) throw new Error(`${label} no puede especificarse simultaneamente con ${idsKey} y ${namesKey}.`);
+  if (!hasIds && !hasNames) throw new Error(`${label} debe especificarse con ${idsKey} o ${namesKey}.`);
+  if (hasIds) return { ids: unique(stringArray(input[idsKey], idsKey), idsKey) };
+  const names = stringArray(input[namesKey], namesKey);
+  const seen = new Set<string>();
+  for (const name of names) {
+    const normalized = normalizeName(name);
+    if (!normalized) throw new Error(`${namesKey} contiene un nombre vacio.`);
+    if (seen.has(normalized)) throw new Error(`${namesKey} contiene el nombre duplicado "${name}" despues de normalizar.`);
+    seen.add(normalized);
+  }
+  return { names };
 }
 
 function parseLocal(value: unknown, label: string): { local: string; epochUtc: number; utc: string; offset: string } {
@@ -204,18 +240,26 @@ function parseRequest(value: unknown): OrderCreateRequest {
   if (input.timeZone !== 'America/Bogota') throw new Error('timeZone debe ser "America/Bogota" en esta version.');
   if (input.allowNoEquipment !== undefined && input.allowNoEquipment !== true) throw new Error('allowNoEquipment solo admite true como excepcion explicita.');
 
-  const equipmentIds = unique(stringArray(input.equipmentIds, 'equipmentIds'), 'equipmentIds');
-  if (!equipmentIds.length && input.allowNoEquipment !== true) {
-    throw new Error('equipmentIds requiere al menos un equipo; usa allowNoEquipment: true solo para una excepcion justificada.');
+  const customer = exclusiveString(input, 'customerId', 'customerName', 'El cliente');
+  const subsidiary = exclusiveString(input, 'subsidiaryId', 'subsidiaryName', 'La sede');
+  const orderType = exclusiveString(input, 'orderTypeId', 'orderTypeName', 'El tipo de orden');
+  const equipment = exclusiveStringArray(input, 'equipmentIds', 'equipmentNames', 'Los equipos');
+  const equipmentCount = equipment.ids?.length ?? equipment.names?.length ?? 0;
+  if (!equipmentCount && input.allowNoEquipment !== true) {
+    throw new Error('equipmentIds o equipmentNames requiere al menos un equipo; usa allowNoEquipment: true solo para una excepcion justificada.');
   }
   if (!Array.isArray(input.schedule) || !input.schedule.length) throw new Error('schedule requiere al menos una asignacion.');
-  const schedule = input.schedule.map((item, index) => {
+  const schedule: OrderCreateScheduleInput[] = input.schedule.map((item, index) => {
     const row = record(item, `schedule[${index}]`);
     exactKeys(row, SCHEDULE_KEYS, `schedule[${index}]`);
     const start = parseLocal(row.startLocal, `schedule[${index}].startLocal`);
     const end = parseLocal(row.endLocal, `schedule[${index}].endLocal`);
     if (start.epochUtc >= end.epochUtc) throw new Error(`schedule[${index}] debe terminar despues de iniciar.`);
-    return { startLocal: start.local, endLocal: end.local, technicianId: requiredString(row.technicianId, `schedule[${index}].technicianId`) };
+    const technician = exclusiveString(row, 'technicianId', 'technicianName', `El tecnico de schedule[${index}]`);
+    return {
+      startLocal: start.local, endLocal: end.local,
+      ...(technician.id ? { technicianId: technician.id } : { technicianName: technician.name! }),
+    };
   });
   for (let left = 0; left < schedule.length; left += 1) {
     const a = schedule[left];
@@ -223,7 +267,9 @@ function parseRequest(value: unknown): OrderCreateRequest {
     const aEnd = parseLocal(a.endLocal, '').epochUtc;
     for (let right = left + 1; right < schedule.length; right += 1) {
       const b = schedule[right];
-      if (a.technicianId !== b.technicianId) continue;
+      const aTechnician = a.technicianId ? `id:${a.technicianId}` : `name:${normalizeName(a.technicianName!)}`;
+      const bTechnician = b.technicianId ? `id:${b.technicianId}` : `name:${normalizeName(b.technicianName!)}`;
+      if (aTechnician !== bTechnician) continue;
       const bStart = parseLocal(b.startLocal, '').epochUtc;
       const bEnd = parseLocal(b.endLocal, '').epochUtc;
       if (aStart < bEnd && bStart < aEnd) throw new Error(`schedule[${left}] y schedule[${right}] se solapan para el mismo tecnico.`);
@@ -232,12 +278,13 @@ function parseRequest(value: unknown): OrderCreateRequest {
 
   return {
     schemaVersion: '1.0', status: input.status, mode: 'manual',
-    customerId: requiredString(input.customerId, 'customerId'),
-    subsidiaryId: requiredString(input.subsidiaryId, 'subsidiaryId'),
-    orderTypeId: requiredString(input.orderTypeId, 'orderTypeId'),
+    ...(customer.id ? { customerId: customer.id } : { customerName: customer.name! }),
+    ...(subsidiary.id ? { subsidiaryId: subsidiary.id } : { subsidiaryName: subsidiary.name! }),
+    ...(orderType.id ? { orderTypeId: orderType.id } : { orderTypeName: orderType.name! }),
     material: requiredString(input.material, 'material'),
     observations: requiredString(input.observations, 'observations'),
-    equipmentIds, schedule, timeZone: 'America/Bogota',
+    ...(equipment.ids ? { equipmentIds: equipment.ids } : { equipmentNames: equipment.names! }),
+    schedule, timeZone: 'America/Bogota',
     ...(input.allowNoEquipment === true ? { allowNoEquipment: true as const } : {}),
   };
 }
@@ -328,6 +375,55 @@ function findEntity(items: JsonRecord[], id: string, label: string): JsonRecord 
   return match;
 }
 
+function matchingDisplayName(item: JsonRecord, requested: string | undefined, fields: string[], fallback: string): string {
+  if (requested !== undefined) {
+    const matching = fields.find((field) => typeof item[field] === 'string' && normalizeName(item[field] as string) === normalizeName(requested));
+    if (matching) return (item[matching] as string).trim();
+  }
+  return nameOf(item, fallback);
+}
+
+function findEntityByName(items: JsonRecord[], requested: string, label: string, fields: string[], context?: string): JsonRecord {
+  const wanted = normalizeName(requested);
+  const matches = items.filter((item) => fields.some((field) => {
+    const value = item[field];
+    return typeof value === 'string' && normalizeName(value) === wanted;
+  }));
+  const scope = context ? ` ${context}` : '';
+  if (!matches.length) throw new Error(`${label} con nombre exacto "${requested}" no existe${scope}.`);
+  if (matches.length > 1) {
+    const candidates = matches.map((item) => {
+      const names = [...new Set(fields.map((field) => typeof item[field] === 'string' ? (item[field] as string).trim() : '').filter(Boolean))];
+      return `"${names.join(' / ') || '(sin nombre)'}" (ID: ${idOf(item) ?? '(sin _id)'})`;
+    });
+    throw new Error(`${label} con nombre exacto "${requested}" es ambiguo${scope}. Candidatos: ${candidates.join('; ')}.`);
+  }
+  const match = matches[0]!;
+  if (!idOf(match)) throw new Error(`${label} con nombre exacto "${requested}"${scope} no contiene un _id resoluble.`);
+  return match;
+}
+
+function resolvedId(item: JsonRecord, label: string): string {
+  const id = idOf(item);
+  if (!id) throw new Error(`${label} resuelto no contiene un _id.`);
+  return id;
+}
+
+function assertNoOverlappingResolvedSchedule(schedule: Array<OrderCreateScheduleInput & { technicianId: string }>): void {
+  for (let left = 0; left < schedule.length; left += 1) {
+    const a = schedule[left]!;
+    const aStart = parseLocal(a.startLocal, '').epochUtc;
+    const aEnd = parseLocal(a.endLocal, '').epochUtc;
+    for (let right = left + 1; right < schedule.length; right += 1) {
+      const b = schedule[right]!;
+      if (a.technicianId !== b.technicianId) continue;
+      const bStart = parseLocal(b.startLocal, '').epochUtc;
+      const bEnd = parseLocal(b.endLocal, '').epochUtc;
+      if (aStart < bEnd && bStart < aEnd) throw new Error(`schedule[${left}] y schedule[${right}] se solapan para el mismo tecnico resuelto (${a.technicianId}).`);
+    }
+  }
+}
+
 function isAuthError(error: unknown): boolean {
   return error instanceof Error && /\b(401|403)\b/.test(error.message);
 }
@@ -387,27 +483,77 @@ async function updateReceipt(file: string, receipt: OrderCreateReceipt): Promise
 }
 
 async function simulateWithToken(file: string, sourceSha256: string, request: OrderCreateRequest, token: string): Promise<OrderCreateSimulation> {
-  const [customerResponse, subsidiaryResponse, typeResponse, equipmentResponse, userResponse] = await Promise.all([
-    fetchApiJson<unknown>('/customer', token),
-    fetchApiJson<unknown>(`/subsidiary?customer=${encodeURIComponent(request.customerId)}`, token),
-    fetchApiJson<unknown>('/order-type', token),
-    fetchApiJson<unknown>(`/equipment?subsidiary=${encodeURIComponent(request.subsidiaryId)}&active=1`, token),
-    fetchApiJson<unknown>('/user', token),
-  ]);
-  const customer = findEntity(list(customerResponse, 'clientes'), request.customerId, 'El cliente');
-  const subsidiary = findEntity(list(subsidiaryResponse, 'sedes del cliente'), request.subsidiaryId, 'La sede');
-  const orderType = findEntity(list(typeResponse, 'tipos de orden'), request.orderTypeId, 'El tipo de orden');
-  const equipmentCatalog = list(equipmentResponse, 'equipos activos de la sede');
-  const equipments = request.equipmentIds.map((id) => findEntity(equipmentCatalog, id, 'El equipo activo'));
-  const userCatalog = list(userResponse, 'usuarios');
-  const technicianIds = [...new Set(request.schedule.map((row) => row.technicianId))];
-  const technicians = technicianIds.map((id) => {
-    const technician = findEntity(userCatalog, id, 'El tecnico');
-    if (technician.itIsTechnical !== true) throw new Error(`El usuario ${id} existe, pero no esta marcado como tecnico.`);
-    return technician;
-  });
+  const needsNameResolution = Boolean(request.customerName || request.subsidiaryName || request.orderTypeName
+    || request.equipmentNames || request.schedule.some((row) => row.technicianName));
+  let customerResponse: unknown;
+  let typeResponse: unknown;
+  let userResponse: unknown;
+  let subsidiaryResponse: unknown;
+  let equipmentResponse: unknown;
 
-  const availability = await Promise.all(request.schedule.map(async (row) => {
+  if (needsNameResolution) {
+    [customerResponse, typeResponse, userResponse] = await Promise.all([
+      fetchApiJson<unknown>('/customer', token),
+      fetchApiJson<unknown>('/order-type', token),
+      fetchApiJson<unknown>('/user', token),
+    ]);
+  } else {
+    [customerResponse, subsidiaryResponse, typeResponse, equipmentResponse, userResponse] = await Promise.all([
+      fetchApiJson<unknown>('/customer', token),
+      fetchApiJson<unknown>(`/subsidiary?customer=${encodeURIComponent(request.customerId!)}`, token),
+      fetchApiJson<unknown>('/order-type', token),
+      fetchApiJson<unknown>(`/equipment?subsidiary=${encodeURIComponent(request.subsidiaryId!)}&active=1`, token),
+      fetchApiJson<unknown>('/user', token),
+    ]);
+  }
+
+  const customerCatalog = list(customerResponse, 'clientes');
+  const customer = request.customerId
+    ? findEntity(customerCatalog, request.customerId, 'El cliente')
+    : findEntityByName(customerCatalog, request.customerName!, 'El cliente', ['name']);
+  const customerId = resolvedId(customer, 'El cliente');
+  if (needsNameResolution) subsidiaryResponse = await fetchApiJson<unknown>(`/subsidiary?customer=${encodeURIComponent(customerId)}`, token);
+
+  const subsidiaryCatalog = list(subsidiaryResponse, 'sedes del cliente');
+  const customerContext = `del cliente "${nameOf(customer, customerId)}" (ID: ${customerId})`;
+  const subsidiary = request.subsidiaryId
+    ? findEntity(subsidiaryCatalog, request.subsidiaryId, 'La sede')
+    : findEntityByName(subsidiaryCatalog, request.subsidiaryName!, 'La sede', ['name'], customerContext);
+  const subsidiaryId = resolvedId(subsidiary, 'La sede');
+  if (needsNameResolution) equipmentResponse = await fetchApiJson<unknown>(`/equipment?subsidiary=${encodeURIComponent(subsidiaryId)}&active=1`, token);
+
+  const typeCatalog = list(typeResponse, 'tipos de orden');
+  const orderType = request.orderTypeId
+    ? findEntity(typeCatalog, request.orderTypeId, 'El tipo de orden')
+    : findEntityByName(typeCatalog, request.orderTypeName!, 'El tipo de orden', ['name', 'description']);
+  const orderTypeId = resolvedId(orderType, 'El tipo de orden');
+  const equipmentCatalog = list(equipmentResponse, 'equipos activos de la sede');
+  const equipmentSelectors = request.equipmentIds ?? request.equipmentNames ?? [];
+  const equipments = equipmentSelectors.map((selector) => request.equipmentIds
+    ? findEntity(equipmentCatalog, selector, 'El equipo activo')
+    : findEntityByName(equipmentCatalog, selector, 'El equipo activo', ['name'], `de la sede "${nameOf(subsidiary, subsidiaryId)}" (ID: ${subsidiaryId})`));
+  const equipmentIds = equipments.map((item) => resolvedId(item, 'El equipo activo'));
+  const userCatalog = list(userResponse, 'usuarios');
+  const techniciansBySchedule = request.schedule.map((row) => {
+    const technician = row.technicianId
+      ? findEntity(userCatalog, row.technicianId, 'El tecnico')
+      : findEntityByName(userCatalog.filter((item) => item.itIsTechnical === true), row.technicianName!, 'El tecnico', ['name'], 'entre usuarios marcados como tecnicos');
+    if (technician.itIsTechnical !== true) {
+      const identifier = row.technicianId ?? row.technicianName!;
+      throw new Error(`El usuario ${identifier} existe, pero no esta marcado como tecnico.`);
+    }
+    return { technician, technicianId: resolvedId(technician, 'El tecnico') };
+  });
+  const resolvedSchedule = request.schedule.map((row, index) => ({ ...row, technicianId: techniciansBySchedule[index]!.technicianId }));
+  assertNoOverlappingResolvedSchedule(resolvedSchedule);
+  const technicianIds = [...new Set(resolvedSchedule.map((row) => row.technicianId))];
+  const technicians = technicianIds.map((id) => findEntity(userCatalog, id, 'El tecnico'));
+  const technicianNameById = new Map(techniciansBySchedule.map((item, index) => [
+    item.technicianId,
+    matchingDisplayName(item.technician, request.schedule[index]!.technicianName, ['name'], item.technicianId),
+  ]));
+
+  const availability = await Promise.all(resolvedSchedule.map(async (row) => {
     const start = parseLocal(row.startLocal, 'startLocal');
     const end = parseLocal(row.endLocal, 'endLocal');
     const query = `order=undefined&start=${encodeURIComponent(start.offset)}&end=${encodeURIComponent(end.offset)}`;
@@ -417,10 +563,10 @@ async function simulateWithToken(file: string, sourceSha256: string, request: Or
   }));
   const blockers = availability.filter((item) => !item.available).map((item) => `Tecnico ${item.technicianId} no disponible entre ${item.startLocal} y ${item.endLocal}.`);
   const payload: OrderCreatePayload = {
-    equipments: [...request.equipmentIds], type: request.orderTypeId, customer: request.customerId,
-    subsidiary: request.subsidiaryId, material: request.material, observations: request.observations,
+    equipments: equipmentIds, type: orderTypeId, customer: customerId,
+    subsidiary: subsidiaryId, material: request.material, observations: request.observations,
     users: technicianIds,
-    dates: request.schedule.map((row) => ({
+    dates: resolvedSchedule.map((row) => ({
       start: parseLocal(row.startLocal, 'startLocal').utc,
       end: parseLocal(row.endLocal, 'endLocal').utc,
       user: row.technicianId,
@@ -430,11 +576,13 @@ async function simulateWithToken(file: string, sourceSha256: string, request: Or
     schemaVersion: '1.0', kind: 'order-create-simulation', dryRun: true, simulatedAt: new Date().toISOString(),
     source: { file: path.resolve(file), sha256: sourceSha256 }, request,
     resolved: {
-      customer: { id: request.customerId, name: nameOf(customer, request.customerId) },
-      subsidiary: { id: request.subsidiaryId, name: nameOf(subsidiary, request.subsidiaryId) },
-      orderType: { id: request.orderTypeId, name: nameOf(orderType, request.orderTypeId) },
-      equipments: equipments.map((item, index) => ({ id: request.equipmentIds[index], name: nameOf(item, request.equipmentIds[index]) })),
-      technicians: technicians.map((item, index) => ({ id: technicianIds[index], name: nameOf(item, technicianIds[index]) })),
+      customer: { id: customerId, name: matchingDisplayName(customer, request.customerName, ['name'], customerId) },
+      subsidiary: { id: subsidiaryId, name: matchingDisplayName(subsidiary, request.subsidiaryName, ['name'], subsidiaryId) },
+      orderType: { id: orderTypeId, name: matchingDisplayName(orderType, request.orderTypeName, ['name', 'description'], orderTypeId) },
+      equipments: equipments.map((item, index) => ({
+        id: equipmentIds[index]!, name: matchingDisplayName(item, request.equipmentNames?.[index], ['name'], equipmentIds[index]!),
+      })),
+      technicians: technicians.map((item, index) => ({ id: technicianIds[index]!, name: technicianNameById.get(technicianIds[index]!) ?? nameOf(item, technicianIds[index]!) })),
     },
     availability, payload, validation: { ready: blockers.length === 0, blockers },
     safety: { siysWritesAttempted: 0, catalogAndAvailabilityMethod: 'GET', orderEndpointCalled: false },

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { buildOrderFilterParams, parseOrderState } from '../src/order-filters.js';
 
 test('builds the exact SIYS order-list filters for finalised orders by creator', () => {

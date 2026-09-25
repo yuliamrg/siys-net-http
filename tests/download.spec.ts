@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { buildDownloadOptions, defaultParams, outputPathFor, parseFormats, parseModules, sanitizeQuoteRecord } from '../src/download.js';
 
 test('parses repeated and comma-separated modules', () => {

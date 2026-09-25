@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { fetchEndpoint } from '../src/api.js';
 import { requestHttp } from '../src/http.js';
 import { CliError } from '../src/errors.js';

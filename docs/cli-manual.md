@@ -235,7 +235,7 @@ siys order inspect 000462 --order-id 6a3ef87eb02db19c4480f820 --output orden-000
 
 ## Crear una orden manual
 
-`order create` prepara y, solo tras autorización explícita, crea una orden manual nueva. No acepta planes, periodos ni tareas derivadas. Primero consultar la Base Operativa y los catálogos de cliente/sede para resolver IDs; después simular y mostrar el payload.
+`order create` prepara y, solo tras autorización explícita, crea una orden manual nueva. No acepta planes, periodos ni tareas derivadas. La solicitud puede usar IDs o nombres humanos; la CLI consulta los catálogos remotos, resuelve y valida las relaciones, y luego simula y muestra el payload con IDs.
 
 ```powershell
 siys order create solicitud.json --output exports\order-create-simulation.json --json

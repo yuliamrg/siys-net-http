@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { LOGIN_URL } from '../src/config.js';
 import { isAllowedRequest, parseBody, redact, redactUrl } from '../src/security.js';
 

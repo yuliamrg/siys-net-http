@@ -32,12 +32,40 @@ El esquema de referencia está en [`schemas/order-create-request.schema.json`](.
 }
 ```
 
+También se pueden usar nombres humanos en lugar de IDs. Este ejemplo muestra el formato; `orderTypeName` debe ser el nombre exacto que aparezca en el catálogo remoto:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "status": "draft",
+  "mode": "manual",
+  "customerName": "Coopidrogas",
+  "subsidiaryName": "Cali",
+  "orderTypeName": "<nombre exacto del catálogo>",
+  "material": "Herramientas manuales",
+  "observations": "Descripción operativa clara de la solicitud.",
+  "equipmentNames": ["UMA 3"],
+  "schedule": [
+    {
+      "startLocal": "2026-08-03T08:00:00",
+      "endLocal": "2026-08-03T09:00:00",
+      "technicianName": "Heiner Sebastian"
+    }
+  ],
+  "timeZone": "America/Bogota"
+}
+```
+
+En cada entidad se requiere su campo `Id` o `Name`; no se permiten ambos a la vez. Los archivos existentes que solo contienen IDs siguen siendo válidos. La comparación por nombre ignora mayúsculas, acentos, espacios repetidos y separadores simples como guiones; exige una única coincidencia exacta normalizada.
+
 ## Qué comprueba
 
 - La estructura es cerrada: no admite campos desconocidos ni datos derivados de planes.
-- Cliente, sede, tipo de orden, equipos activos y técnicos existen en los catálogos consultados.
+- Cliente, sede, tipo de orden, equipos activos y técnicos existen en los catálogos consultados; los nombres se resuelven a IDs antes de construir el payload.
 - La sede se busca dentro del cliente y los equipos activos dentro de la sede.
 - Cada usuario está marcado por SIYS como técnico.
+- La sede se consulta bajo el cliente resuelto y los equipos se consultan con `subsidiary=<id>&active=1`; los nombres de técnicos solo se buscan entre usuarios con `itIsTechnical: true`.
+- El tipo de orden se consulta en `/order-type`; como no se observó la respuesta real durante esta fase, `orderTypeName` compara los campos explícitos `name` y `description`.
 - Los IDs de equipos no se repiten; un caso sin equipo exige `allowNoEquipment: true`.
 - Los horarios son fechas locales válidas de Bogotá, usan intervalos de 30 minutos, terminan después de iniciar y no se solapan para un mismo técnico.
 - SIYS informa disponibilidad para cada franja.

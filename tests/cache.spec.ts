@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import {
   cacheDatabasePath,
   cacheTtlMs,

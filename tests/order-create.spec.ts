@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { executeOrderCreate, orderCreateAuditOutputPath, orderCreateExecutionState, orderCreateSimulationOutputPath, simulateOrderCreate, writeOrderCreateAudit, writeOrderCreateSimulation } from '../src/order-create.js';
 
 const originalFetch = global.fetch;
@@ -47,6 +47,44 @@ function mockCatalogs(available = true): Array<{ url: string; method?: string }>
     if (url.includes('/equipment?')) return response([{ _id: 'equipment-1', name: 'Aire Uno' }]);
     if (url.endsWith('/user')) return response([{ _id: 'technician-1', name: 'Tecnico Uno', itIsTechnical: true }]);
     if (url.includes('/itAvailable?')) return response({ available });
+    throw new Error(`Ruta inesperada: ${url}`);
+  };
+  return calls;
+}
+
+function nameRequestOverrides(): Record<string, unknown> {
+  return {
+    customerId: undefined, customerName: 'COOPIDROGAS',
+    subsidiaryId: undefined, subsidiaryName: 'cali',
+    orderTypeId: undefined, orderTypeName: 'LLAMADA DE EMERGENCIA',
+    equipmentIds: undefined, equipmentNames: ['uma 3'],
+    schedule: [{ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T09:00:00', technicianName: 'heiner sebastian' }],
+  };
+}
+
+function mockNameCatalogs(overrides: Record<string, unknown> = {}): Array<{ url: string; method?: string }> {
+  const catalogs: Record<string, unknown> = {
+    customer: { docs: [{ _id: 'customer-name-id', name: 'Coopidrogás' }] },
+    subsidiary: [{ _id: 'subsidiary-name-id', name: 'CÁLI' }],
+    orderType: [{ _id: 'type-name-id', description: 'Llamada de emergencia' }],
+    equipment: [{ _id: 'equipment-name-id', name: 'UMA-3' }],
+    user: [
+      { _id: 'nontechnical-name-id', name: 'Heiner Sebastian', itIsTechnical: false },
+      { _id: 'technician-name-id', name: 'Heíner   Sebastián', itIsTechnical: true },
+    ],
+    available: true,
+    ...overrides,
+  };
+  const calls: Array<{ url: string; method?: string }> = [];
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method });
+    if (url.endsWith('/customer')) return response(catalogs.customer);
+    if (url.includes('/subsidiary?')) return response(catalogs.subsidiary);
+    if (url.endsWith('/order-type')) return response(catalogs.orderType);
+    if (url.includes('/equipment?')) return response(catalogs.equipment);
+    if (url.endsWith('/user')) return response(catalogs.user);
+    if (url.includes('/itAvailable?')) return response({ available: catalogs.available });
     throw new Error(`Ruta inesperada: ${url}`);
   };
   return calls;
@@ -227,6 +265,174 @@ test('records timeout as ambiguous and never retries the POST', async () => {
   expect(progress).toEqual(['in_progress', 'ambiguous']);
   expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
   await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('confirmed name request re-resolves catalogs, checks availability, posts IDs once, and verifies the created order', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile({ ...nameRequestOverrides(), status: 'approved' });
+  const contract = await contractFile(fixture.directory);
+  const calls = mockNameCatalogs();
+  const catalogFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'POST') {
+      calls.push({ url, method: 'POST' });
+      expect(url).toBe('https://api.siys.net/api/order');
+      expect(JSON.parse(String(init.body))).toEqual(expect.objectContaining({
+        customer: 'customer-name-id', subsidiary: 'subsidiary-name-id', type: 'type-name-id',
+        equipments: ['equipment-name-id'], users: ['technician-name-id'],
+      }));
+      return response({ _id: 'created-name-order', code: 37 });
+    }
+    if (url.endsWith('/order/created-name-order/detail?full=true')) {
+      calls.push({ url, method: 'GET' });
+      return response({ doc: {
+        _id: 'created-name-order', code: 37, customer: 'customer-name-id', subsidiary: 'subsidiary-name-id', type: 'type-name-id',
+        material: 'Herramientas manuales', observations: 'Prueba de simulacion sin escritura.',
+        equipments: ['equipment-name-id'], users: ['technician-name-id'],
+        dates: [{ start: '2026-08-03T13:00:00.000Z', end: '2026-08-03T14:00:00.000Z', user: 'technician-name-id' }],
+      } });
+    }
+    return catalogFetch(input, init);
+  };
+
+  const result = await executeOrderCreate(fixture.file, {
+    confirm: true, contractPath: contract, autoLogin: false, receiptDir: path.join(fixture.directory, 'receipts'),
+  });
+
+  expect(result.dryRun).toBe(false);
+  if (!result.dryRun) {
+    expect(result.simulation.request).toHaveProperty('customerName', 'COOPIDROGAS');
+    expect(result.simulation.resolved.customer.id).toBe('customer-name-id');
+    expect(result.audit.status).toBe('verified');
+    expect(result.audit.verification).toEqual(expect.objectContaining({ status: 'verified', orderId: 'created-name-order' }));
+  }
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
+  expect(calls.filter((call) => call.method === 'GET')).toHaveLength(7);
+  expect(calls.filter((call) => call.url.endsWith('/customer'))).toHaveLength(1);
+  expect(calls.filter((call) => call.url.endsWith('/order-type'))).toHaveLength(1);
+  expect(calls.filter((call) => call.url.endsWith('/user'))).toHaveLength(1);
+  expect(calls.filter((call) => call.url.includes('/subsidiary?'))).toHaveLength(1);
+  expect(calls.filter((call) => call.url.includes('/equipment?'))).toHaveLength(1);
+  expect(calls.filter((call) => call.url.includes('/itAvailable?'))).toHaveLength(1);
+  expect(calls.filter((call) => call.url.includes('/detail?full=true'))).toHaveLength(1);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('resolves normalized human names through scoped catalogs and keeps IDs in the payload', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile(nameRequestOverrides());
+  const calls = mockNameCatalogs();
+
+  const simulation = await simulateOrderCreate(fixture.file, { autoLogin: false });
+
+  expect(simulation.request).toEqual(expect.objectContaining({
+    customerName: 'COOPIDROGAS', subsidiaryName: 'cali', orderTypeName: 'LLAMADA DE EMERGENCIA',
+    equipmentNames: ['uma 3'], schedule: [expect.objectContaining({ technicianName: 'heiner sebastian' })],
+  }));
+  expect(simulation.resolved).toEqual({
+    customer: { id: 'customer-name-id', name: 'Coopidrogás' },
+    subsidiary: { id: 'subsidiary-name-id', name: 'CÁLI' },
+    orderType: { id: 'type-name-id', name: 'Llamada de emergencia' },
+    equipments: [{ id: 'equipment-name-id', name: 'UMA-3' }],
+    technicians: [{ id: 'technician-name-id', name: 'Heíner   Sebastián' }],
+  });
+  expect(simulation.payload).toEqual(expect.objectContaining({
+    customer: 'customer-name-id', subsidiary: 'subsidiary-name-id', type: 'type-name-id',
+    equipments: ['equipment-name-id'], users: ['technician-name-id'],
+  }));
+  expect(simulation.safety).toEqual({ siysWritesAttempted: 0, catalogAndAvailabilityMethod: 'GET', orderEndpointCalled: false });
+  expect(calls).toHaveLength(6);
+  expect(calls.every((call) => call.method === 'GET')).toBe(true);
+  expect(calls.slice(0, 3).map((call) => new URL(call.url).pathname).sort()).toEqual(['/api/customer', '/api/order-type', '/api/user']);
+  expect(calls[3]?.url).toContain('/subsidiary?customer=customer-name-id');
+  expect(calls[4]?.url).toContain('/equipment?subsidiary=subsidiary-name-id&active=1');
+  expect(calls[5]?.url).toContain('/user/technician-name-id/itAvailable?');
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('rejects zero and multiple normalized customer name matches with candidate IDs', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const missing = await requestFile(nameRequestOverrides());
+  mockNameCatalogs({ customer: [{ _id: 'different-customer', name: 'Otra empresa' }] });
+  await expect(simulateOrderCreate(missing.file, { autoLogin: false })).rejects.toThrow(/cliente con nombre exacto "COOPIDROGAS" no existe/i);
+  await fs.rm(missing.directory, { recursive: true, force: true });
+
+  const ambiguous = await requestFile(nameRequestOverrides());
+  mockNameCatalogs({ customer: [
+    { _id: 'customer-a', name: 'Coopidrogás' },
+    { _id: 'customer-b', name: 'COOPIDROGAS' },
+  ] });
+  await expect(simulateOrderCreate(ambiguous.file, { autoLogin: false })).rejects.toThrow(/ambiguo.*customer-a.*customer-b/i);
+  await fs.rm(ambiguous.directory, { recursive: true, force: true });
+});
+
+test('resolves a site only from the customer-scoped subsidiary response', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile(nameRequestOverrides());
+  const calls = mockNameCatalogs({ subsidiary: [{ _id: 'other-customer-site', name: 'Bogotá' }] });
+  await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(/sede con nombre exacto "cali" no existe.*cliente "Coopidrogás" \(ID: customer-name-id\)/i);
+  expect(calls.some((call) => call.url.includes('/subsidiary?customer=customer-name-id'))).toBe(true);
+  expect(calls.some((call) => call.url.endsWith('/subsidiary'))).toBe(false);
+  expect(calls.some((call) => call.url.includes('/equipment?'))).toBe(false);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('blocks duplicate equipment names within the resolved site and reports each ID and scope', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile(nameRequestOverrides());
+  const calls = mockNameCatalogs({ equipment: [
+    { _id: 'equipment-a', name: 'UMA 3' },
+    { _id: 'equipment-b', name: 'UMA-3' },
+  ] });
+  await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(/ambiguo.*sede "CÁLI" \(ID: subsidiary-name-id\).*equipment-a.*equipment-b/i);
+  expect(calls.find((call) => call.url.includes('/equipment?'))?.url).toContain('/equipment?subsidiary=subsidiary-name-id&active=1');
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('does not resolve a technician name from non-technical users', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile(nameRequestOverrides());
+  const calls = mockNameCatalogs({ user: [{ _id: 'not-a-technician', name: 'Heiner Sebastian', itIsTechnical: false }] });
+  await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(/tecnico con nombre exacto "heiner sebastian" no existe.*usuarios marcados como tecnicos/i);
+  expect(calls.some((call) => call.url.includes('/itAvailable?'))).toBe(false);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+});
+
+test('resolves order type from name or description and blocks zero or ambiguous matches', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const fixture = await requestFile(nameRequestOverrides());
+  const calls = mockNameCatalogs({ orderType: [] });
+  await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(/tipo de orden con nombre exacto "LLAMADA DE EMERGENCIA" no existe/i);
+  expect(calls.some((call) => call.url.endsWith('/order-type'))).toBe(true);
+  await fs.rm(fixture.directory, { recursive: true, force: true });
+
+  const ambiguous = await requestFile(nameRequestOverrides());
+  mockNameCatalogs({ orderType: [
+    { _id: 'type-a', name: 'Llamada de emergencia' },
+    { _id: 'type-b', description: 'LLAMADA DE EMERGENCIA' },
+  ] });
+  await expect(simulateOrderCreate(ambiguous.file, { autoLogin: false })).rejects.toThrow(/ambiguo.*type-a.*type-b/i);
+  await fs.rm(ambiguous.directory, { recursive: true, force: true });
+});
+
+test('rejects ID and name alternatives supplied together for the same entity', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return response({}); };
+  const cases: Array<{ overrides: Record<string, unknown>; error: RegExp }> = [
+    { overrides: { customerName: 'Coopidrogas' }, error: /customerId y customerName/ },
+    { overrides: { subsidiaryName: 'Cali' }, error: /subsidiaryId y subsidiaryName/ },
+    { overrides: { orderTypeName: 'Emergencia' }, error: /orderTypeId y orderTypeName/ },
+    { overrides: { equipmentNames: ['UMA 3'] }, error: /equipmentIds y equipmentNames/ },
+    { overrides: { schedule: [{ startLocal: '2026-08-03T08:00:00', endLocal: '2026-08-03T09:00:00', technicianId: 'technician-1', technicianName: 'Heiner' }] }, error: /technicianId y technicianName/ },
+  ];
+  for (const entry of cases) {
+    const fixture = await requestFile(entry.overrides);
+    await expect(simulateOrderCreate(fixture.file, { autoLogin: false })).rejects.toThrow(entry.error);
+    await fs.rm(fixture.directory, { recursive: true, force: true });
+  }
+  expect(calls).toBe(0);
 });
 
 test('records HTTP 500 as ambiguous with one POST and keeps its reserved receipt', async () => {
