@@ -981,6 +981,19 @@ test('finalizeOrder: state 3 queda alreadyApplied sin escribir', async () => {
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
+test('finalizeOrder: rechaza si hay una mutación posterior antes de cualquier HTTP', async () => {
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    { operationId: 'op-finalize', action: 'finalizeOrder' },
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' },
+  ]), CONTRACT_12);
+  let requests = 0;
+  global.fetch = async () => { requests += 1; return response({}); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 }))
+    .rejects.toThrow(/finalizeOrder debe ser la última mutación efectiva/);
+  expect(requests).toBe(0);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
 test('finalizeOrder: state 6 o close true no degradan y no escriben', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   for (const order of [baseOrder({ state: 6, close: false }), baseOrder({ state: 2, close: true })]) {
@@ -1044,6 +1057,24 @@ test('finalizeOrder: un PUT ambiguo sin state 3 queda ambiguous sin reintentar',
   try { await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 }); }
   catch (caught) { error = caught; }
   expect(puts).toBe(1); expect(error.applyResult.audit.status).toBe('ambiguous');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: close inesperado queda ambiguous aun con state 3 y no reintenta', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  let puts = 0;
+  global.fetch = async (_input, init) => {
+    if (init?.method === 'GET') return orderResponse(order);
+    puts += 1; order.state = 3; order.close = true; return response({ ok: true });
+  };
+  let error: any;
+  try { await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 }); }
+  catch (caught) { error = caught; }
+  expect(puts).toBe(1);
+  expect(error.applyResult.audit.status).toBe('ambiguous');
+  expect(error.applyResult.steps.at(-1)).toMatchObject({ status: 'ambiguous', error: expect.stringContaining('unexpected_close_transition') });
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 

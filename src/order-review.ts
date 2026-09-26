@@ -434,6 +434,11 @@ function parseReview(value: JsonRecord, requireApproved: boolean): { schemaVersi
       items.push(parsed);
     }
   }
+  const finalizeItems = items.filter((item) => item.kind === 'action' && item.action === 'finalizeOrder');
+  if (finalizeItems.length > 1) throw new Error('Un lote solo puede contener un finalizeOrder.');
+  if (finalizeItems.length === 1 && items.at(-1) !== finalizeItems[0]) {
+    throw new Error('finalizeOrder debe ser la última mutación efectiva del lote.');
+  }
   if (!items.length) throw new Error('El borrador no contiene cambios ni operaciones.');
   if (needsOrderId && !orderId) throw new Error('ensureEquipmentMaintenance exige order.orderId inequívoco; no se selecciona una orden solo por code.');
   return { schemaVersion, orderCode, orderId, orderApproved, items };
@@ -863,6 +868,12 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
         const after = await loadOrder(orderId);
         const stateAfter = stateNumber(after.state); const closeAfter = after.close === true;
         if (stateAfter === 3) {
+          if (closeAfter !== closeImmediatelyBefore) {
+            result.audit.status = 'ambiguous';
+            const message = 'unexpected_close_transition: finalizeOrder cambió close junto con state=3; no se reintentará.';
+            await progress({ operationId, action: item.action, step: 'finalize', status: 'ambiguous', orderId, stateBefore, stateAfter, closeBefore: closeImmediatelyBefore, closeAfter, error: message });
+            throw new Error(message);
+          }
           item.writes = 1; result.applied.push(item);
           await progress({ operationId, action: item.action, step: 'finalize', status: 'completed', orderId, stateBefore, stateAfter: 3, closeBefore: closeImmediatelyBefore, closeAfter });
           await delay(); continue;
