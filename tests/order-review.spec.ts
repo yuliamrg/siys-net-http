@@ -459,15 +459,23 @@ function link(maintenanceId: string, equipmentId: string): Record<string, unknow
 function baseOrder(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { _id: 'order-1', code: '007644', material: 'M', equipments: [], maintenances: [], ...overrides };
 }
+function formReadyOrder(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return baseOrder({
+    type: { _id: 'type-live' }, customer: { _id: 'customer-live' }, subsidiary: { _id: 'subsidiary-live' },
+    observations: 'Observación viva', users: [{ _id: 'user-live' }],
+    dates: [{ _id: 'date-live', date: '2026-01-01', start: '08:00', end: '10:00', users: [{ _id: 'tech-live' }] }],
+    ...overrides,
+  });
+}
 const ENSURE_OP = {
   operationId: 'op-ensure', action: 'ensureEquipmentMaintenance', equipmentId: 'eq-1',
   maintenance: { user: 'user-1', equipmentState: 2, start: '2026-01-01T08:00:00', end: '2026-01-01T09:00:00' },
 };
 function ensureDraft(order: Record<string, unknown>, operations: unknown[]): Record<string, unknown> {
-  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ maintenanceId: 'source-m', original: {}, proposed: {}, operations }] };
+  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ original: {}, proposed: {}, operations }] };
 }
 function task12Draft(order: Record<string, unknown>, operations: unknown[]): Record<string, unknown> {
-  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ maintenanceId: 'm-1', original: {}, proposed: {}, operations }] };
+  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ original: {}, proposed: {}, operations }] };
 }
 
 test('schema 1.0 remains valid and unchanged', async () => {
@@ -497,9 +505,32 @@ test('schema 1.1 contract rejects the 1.2 actions', async () => {
 });
 
 test('a 1.1 draft rejects the 1.2 actions instead of reinterpreting them', async () => {
-  const draft = ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]); draft.schemaVersion = '1.1';
+  const draft: any = ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]);
+  draft.schemaVersion = '1.1'; draft.reviews[0].maintenanceId = 'source-m';
   const files = await writeFiles(draft, CONTRACT_12);
   await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/schemaVersion "1\.2"/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('schema 1.1 still requires reviews[].maintenanceId', async () => {
+  const files = await writeFiles({ schemaVersion: '1.1', status: 'approved', order: { code: '007644' }, reviews: [{ original: {}, proposed: {} }] }, CONTRACT_12);
+  let requests = 0; global.fetch = async () => { requests += 1; return response({}); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/maintenanceId/);
+  expect(requests).toBe(0);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('schema 1.2 sin maintenanceId rechaza ediciones legacy antes de escribir', async () => {
+  const files = await writeFiles({
+    schemaVersion: '1.2', status: 'approved', order: { code: '007644' }, reviews: [{
+      original: { observations: 'Anterior' }, proposed: { observations: 'Corregida' },
+      tasks: [{ taskId: 'task-1', original: { name: 'General' }, proposed: { name: 'Tarea corregida' } }],
+      activities: [{ taskId: 'task-1', activityId: 'activity-1', action: 'edit', original: { reply: 'Anterior' }, proposed: { reply: 'Corregida' } }],
+    }],
+  }, CONTRACT_12);
+  let requests = 0; global.fetch = async () => { requests += 1; return response({}); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/sin maintenanceId.*ediciones legacy/);
+  expect(requests).toBe(0);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
@@ -527,6 +558,32 @@ test('rejects a ref whose produced type does not match', async () => {
     { operationId: 'op-task', action: 'addTaskGeneral', taskRef: 'op-ensure' },
   ]), CONTRACT_12);
   await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/produce maintenance/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('schema 1.2 sin maintenanceId resuelve ensure→task mediante maintenanceRef', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = formReadyOrder({ equipments: [{ _id: 'eq-1' }], maintenances: [link('m-existing', 'eq-1')] });
+  const maintenance12: any = { _id: 'm-existing', tasks: [] };
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    ENSURE_OP,
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceRef: 'op-ensure' },
+  ]), CONTRACT_12);
+  let posts = 0;
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET' && url.includes('/api/order/order-1/detail')) return orderResponse(order);
+    if (init?.method === 'GET' && url.includes('/api/maintenance/m-existing/detail')) return response(maintenance12);
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/m-existing/add-task-general')) {
+      posts += 1; maintenance12.tasks.push({ _id: 'task-new', name: 'General', activitys: [] }); return textResponse('ok');
+    }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  const savedDraft = JSON.parse(await fs.readFile(files.draftPath, 'utf8')) as { reviews: Array<Record<string, unknown>> };
+  expect(Object.hasOwn(savedDraft.reviews[0], 'maintenanceId')).toBe(false);
+  expect(posts).toBe(1); expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(1);
+  expect(result.steps.map((step) => `${step.step}:${step.status}`)).toEqual(['ensure:alreadyApplied', 'create:completed', 'task:completed']);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
@@ -568,19 +625,64 @@ test('plantilla B: equipo en la orden sin mantenimiento solo hace POST', async (
 
 test('plantilla C: equipo faltante hace PUT de la orden y POST del mantenimiento', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  const order = baseOrder({ equipments: [], maintenances: [], material: 'M' });
-  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [ENSURE_OP]), CONTRACT_12);
-  const methods: string[] = [];
+  const staleOrder = formReadyOrder({
+    type: { _id: 'type-stale' }, customer: { _id: 'customer-stale' }, subsidiary: { _id: 'subsidiary-stale' },
+    material: 'Material vivo', observations: 'Observación anterior', users: [{ _id: 'user-stale' }],
+    dates: [{ _id: 'date-stale', date: '2025-12-31', start: '07:00', end: '08:00', users: [{ _id: 'tech-stale' }] }],
+    equipments: [{ _id: 'eq-existing' }], maintenances: [],
+  });
+  const order: any = formReadyOrder({
+    type: { _id: 'type-live' }, customer: { _id: 'customer-live' }, subsidiary: { _id: 'subsidiary-live' },
+    material: 'Material vivo', observations: 'Observación viva', users: [{ _id: 'user-live-1' }, { _id: 'user-live-2' }],
+    dates: [{ _id: 'date-live', date: '2026-01-01', start: '08:00', end: '10:00', users: [{ _id: 'tech-live-1' }, { _id: 'tech-live-2' }] }],
+    equipments: [{ _id: 'eq-existing' }], maintenances: [],
+  });
+  const expectedLiveFields = {
+    type: 'type-live', customer: 'customer-live', subsidiary: 'subsidiary-live', material: 'Material vivo',
+    observations: 'Observación viva', users: ['user-live-1', 'user-live-2'],
+    dates: [{ _id: 'date-live', date: '2026-01-01', start: '08:00', end: '10:00', users: ['tech-live-1', 'tech-live-2'] }],
+    equipments: ['eq-existing'],
+  };
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'Material vivo' } }, [ENSURE_OP]), CONTRACT_12);
+  const writes: Array<{ method: string; body: Record<string, unknown> }> = []; let orderReads = 0;
   global.fetch = async (input, init) => {
-    const url = String(input); if (init?.method === 'GET') return orderResponse(order);
-    methods.push(String(init?.method));
-    if (url.endsWith('/api/order/order-1')) { order.equipments = JSON.parse(String(init?.body)).equipments; return response({ ok: true }); }
+    const url = String(input);
+    if (init?.method === 'GET') { orderReads += 1; return orderResponse(orderReads <= 2 ? staleOrder : order); }
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>; writes.push({ method: String(init?.method), body });
+    if (url.endsWith('/api/order/order-1')) {
+      if (Object.keys(body).length === 1 && Object.hasOwn(body, 'equipments')) throw new Error('PUT parcial rechazado por el mock del formulario.');
+      Object.assign(order, body); return response({ ok: true });
+    }
     if (url.endsWith('/api/maintenance/empty')) { order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
     throw new Error(`Ruta inesperada ${url}`);
   };
   const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
-  expect(result.plannedWrites).toBe(2); expect(methods).toEqual(['PUT', 'POST']); expect(order.equipments).toEqual(['eq-1']);
+  const putBody = writes[0].body;
+  expect(Object.keys(putBody).sort()).toEqual(['type', 'customer', 'subsidiary', 'material', 'observations', 'users', 'dates', 'equipments'].sort());
+  expect(putBody).toEqual({ ...expectedLiveFields, equipments: ['eq-existing', 'eq-1'] });
+  const { equipments: changedEquipments, ...afterFields } = putBody;
+  const { equipments: originalEquipments, ...beforeFields } = expectedLiveFields;
+  expect(afterFields).toEqual(beforeFields);
+  expect(changedEquipments).toEqual([...originalEquipments, 'eq-1']);
+  expect((changedEquipments as string[]).filter((id) => id === 'eq-1')).toHaveLength(1);
+  expect(writes.map((write) => write.method)).toEqual(['PUT', 'POST']);
+  expect(result.plannedWrites).toBe(2); expect(order.equipments.filter((id: string) => id === 'eq-1')).toHaveLength(1);
   expect(result.applied).toHaveLength(1);
+  expect(result.steps.map((step) => `${step.step}:${step.status}`)).toEqual(['equipmentLink:completed', 'createMaintenance:completed', 'ensure:completed']);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla C bloquea el PUT si un campo obligatorio no tiene ID resoluble', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = formReadyOrder({ customer: { name: 'Cliente sin ID' }, equipments: [], maintenances: [] });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: {} }, [ENSURE_OP]), CONTRACT_12);
+  let writes = 0;
+  global.fetch = async (_input, init) => {
+    if (init?.method !== 'GET') writes += 1;
+    return orderResponse(order);
+  };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 })).rejects.toThrow(/customer no contiene un ID inequívoco/);
+  expect(writes).toBe(0);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
@@ -692,7 +794,7 @@ test('plantilla 1.2: cadena ensure→task→activity→image con refs', async ()
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-chain-')); const image = path.join(directory, 'evidence.jpg');
   await fs.writeFile(image, Buffer.from([0xff, 0xd8, 0xff, 0xd9])); const sha256 = crypto.createHash('sha256').update(await fs.readFile(image)).digest('hex');
-  const order: any = baseOrder({ equipments: ['eq-0'], maintenances: [], material: 'M' });
+  const order: any = formReadyOrder({ equipments: [{ _id: 'eq-0' }], maintenances: [], material: 'M' });
   const maintenance12: any = { _id: 'm-2', tasks: [] };
   const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [
     ENSURE_OP,
@@ -725,7 +827,7 @@ test('plantilla 1.2: cadena ensure→task→activity→image con refs', async ()
 
 test('plantilla 1.2: reanudar conserva los IDs producidos por ensure', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  const order: any = baseOrder({ equipments: ['eq-0'], maintenances: [], material: 'M' });
+  const order: any = formReadyOrder({ equipments: [{ _id: 'eq-0' }], maintenances: [], material: 'M' });
   const maintenance12: any = { _id: 'm-2', tasks: [] };
   const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [
     ENSURE_OP,

@@ -152,10 +152,12 @@ Garantiza que un equipo aprobado pertenece a la orden y tiene exactamente un man
 
 - equipo ya en la orden con exactamente un mantenimiento → 0 escrituras, `alreadyApplied`, produce `maintenanceId`;
 - equipo ya en la orden sin mantenimiento → solo `POST /maintenance/empty`;
-- equipo ausente de la orden → `PUT /order/{orderId}` con la lista viva de equipos más el ID aprobado y luego `POST /maintenance/empty`;
+- equipo ausente de la orden → `PUT /order/{orderId}` con el cuerpo completo del formulario manual, normalizado desde la relectura viva, y luego `POST /maintenance/empty`;
 - equipo duplicado o con más de un mantenimiento → `AMBIGUOUS`: se bloquea sin escribir.
 
-El `PUT` nunca se construye desde un snapshot antiguo: se relee la orden viva, se comparan los campos protegidos de `order.approved` (`customer`, `subsidiary`, `type`, `material`, `observations`, `users`, `dates`, `equipments`) y ante una divergencia externa se produce `CONFLICT` sin escribir. `order.orderId` es obligatorio; no se selecciona una orden solo por `code`.
+El cuerpo del `PUT` incluye exactamente `type`, `customer`, `subsidiary`, `material`, `observations`, `users`, `dates` y `equipments`. Se convierte `type`, `customer` y `subsidiary` a IDs; `users` y `equipments` a listas de IDs; se conserva la programación viva de `dates` con los IDs de técnicos; y se conservan los valores vivos de `material` y `observations`. Solo se añade el equipo aprobado a `equipments`. Si falta un campo obligatorio o una referencia no se puede convertir inequívocamente, se detiene antes del `PUT`.
+
+El `PUT` nunca se construye desde un snapshot antiguo: justo antes se relee la orden viva, se comparan los campos protegidos de `order.approved` (`customer`, `subsidiary`, `type`, `material`, `observations`, `users`, `dates`, `equipments`) y ante una divergencia externa se produce `CONFLICT` sin escribir. `order.orderId` es obligatorio; no se selecciona una orden solo por `code`.
 
 Tras `POST /maintenance/empty` la relectura de la orden decide: exactamente un mantenimiento para el equipo → `completed` (aun con HTTP 500); cero con error inequívoco → `failed`; cualquier duda o más de uno → `ambiguous`. Nunca se repite el POST.
 
@@ -171,7 +173,7 @@ La comparación de nombres es determinística y normalizada (sin acentos, minús
 
 ### Referencias backward-only
 
-`maintenanceRef`, `taskRef` y `activityRef` apuntan al `operationId` de una operación que aparece antes en el archivo. Para una misma entidad se declara `id` XOR `ref`, nunca ambos. Cada referencia debe apuntar al tipo que la operación referenciada produce (`ensureEquipmentMaintenance` → `maintenanceId`, `addTaskGeneral` → `taskId`, `addActivity` → `activityId`); las referencias futuras, cruzadas o a tipos incompatibles se rechazan antes de toda lectura remota. Las operaciones de una revisión `1.2` declaran `maintenanceId` o `maintenanceRef` explícito.
+`maintenanceRef`, `taskRef` y `activityRef` apuntan al `operationId` de una operación que aparece antes en el archivo. Para una misma entidad se declara `id` XOR `ref`, nunca ambos. Cada referencia debe apuntar al tipo que la operación referenciada produce (`ensureEquipmentMaintenance` → `maintenanceId`, `addTaskGeneral` → `taskId`, `addActivity` → `activityId`); las referencias futuras, cruzadas o a tipos incompatibles se rechazan antes de toda lectura remota. Las operaciones de una revisión `1.2` que necesitan un mantenimiento declaran `maintenanceId` o `maintenanceRef` explícito. `reviews[].maintenanceId` puede omitirse únicamente cuando la revisión no contiene ediciones legacy de maintenance, `tasks[]` o `activities[]`; los esquemas `1.0` y `1.1` lo siguen requiriendo.
 
 Ejemplo de una sola revisión aprobada que completa la estructura de un equipo:
 
@@ -181,7 +183,6 @@ Ejemplo de una sola revisión aprobada que completa la estructura de un equipo:
   "status": "approved",
   "order": { "code": "007644", "orderId": "ID_INTERNO_ORDEN", "approved": { "material": "Mantenimiento preventivo" } },
   "reviews": [{
-    "maintenanceId": "MANTENIMIENTO_FUENTE",
     "original": {},
     "proposed": {},
     "operations": [

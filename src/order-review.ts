@@ -276,9 +276,19 @@ function forcedFields(value: JsonRecord, label: string): Set<string> {
   if (!Array.isArray(value.forceApply) || value.forceApply.some((field) => typeof field !== 'string')) throw new Error(`${label}.forceApply debe ser una lista de nombres de campo.`);
   return new Set(value.forceApply as string[]);
 }
-function changesFromReview(review: JsonRecord): Change[] {
-  const maintenanceId = string(review.maintenanceId);
-  if (!maintenanceId) throw new Error('Una revisión no tiene maintenanceId.');
+function changesFromReview(review: JsonRecord, maintenanceId: string | undefined, schemaVersion: string): Change[] {
+  if (!maintenanceId) {
+    if (schemaVersion !== '1.2') throw new Error('Una revisión no tiene maintenanceId.');
+    if (review.manualReview === true) throw new Error('Una revisión sin maintenanceId no puede declarar manualReview.');
+    const original = record(review.original ?? {}, 'original de revisión sin maintenanceId');
+    const proposed = record(review.proposed ?? {}, 'proposed de revisión sin maintenanceId');
+    const forced = forcedFields(review, 'revisión sin maintenanceId');
+    const hasMaintenanceEdit = ['observations', 'equipmentState'].some((field) => proposed[field] !== undefined && (!equal(original[field], proposed[field]) || forced.has(field)));
+    if (hasMaintenanceEdit || (Array.isArray(review.tasks) && review.tasks.length > 0) || (Array.isArray(review.activities) && review.activities.length > 0)) {
+      throw new Error('Una revisión 1.2 sin maintenanceId no puede contener ediciones legacy de maintenance, tasks o activities.');
+    }
+    return [];
+  }
   if (review.manualReview === true) throw new Error(`El mantenimiento ${maintenanceId} requiere revisión manual y no se puede aplicar.`);
   const changes: Change[] = []; const original = record(review.original ?? {}, `original de ${maintenanceId}`); const proposed = record(review.proposed ?? {}, `proposed de ${maintenanceId}`);
   const forced = forcedFields(review, `revisión ${maintenanceId}`);
@@ -314,7 +324,7 @@ function refValue(item: JsonRecord, key: string, operationId: string): string | 
 function checkExclusive(operationId: string, entity: string, id?: string, ref?: string): void {
   if (id && ref) throw new Error(`La operación ${operationId} no puede declarar ${entity}Id y ${entity}Ref a la vez.`);
 }
-function actionFromValue(value: unknown, reviewMaintenanceId: string, schemaVersion: string, produced: Map<string, ProducedType>): ReviewAction {
+function actionFromValue(value: unknown, reviewMaintenanceId: string | undefined, schemaVersion: string, produced: Map<string, ProducedType>): ReviewAction {
   const item = record(value, 'operación propuesta'); const operationId = string(item.operationId); const action = string(item.action) as ActionName | undefined;
   if (!operationId || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$/.test(operationId)) throw new Error('Cada operación requiere operationId único (3-80 caracteres).');
   if (!action || !(action in EXPECTED_ACTIONS)) throw new Error(`Operación ${operationId} inválida.`);
@@ -399,8 +409,9 @@ function parseReview(value: JsonRecord, requireApproved: boolean): { schemaVersi
   const reviews = Array.isArray(value.reviews) ? value.reviews : []; if (!reviews.length) throw new Error('El borrador no contiene revisiones.');
   const items: WorkItem[] = []; const ids = new Set<string>(); const produced = new Map<string, ProducedType>(); let needsOrderId = false;
   for (const raw of reviews) {
-    const review = record(raw, 'revisión'); const maintenanceId = string(review.maintenanceId); if (!maintenanceId) throw new Error('Una revisión no tiene maintenanceId.');
-    items.push(...changesFromReview(review));
+    const review = record(raw, 'revisión'); const maintenanceId = string(review.maintenanceId);
+    if (!maintenanceId && schemaVersion !== '1.2') throw new Error('Una revisión no tiene maintenanceId.');
+    items.push(...changesFromReview(review, maintenanceId, String(schemaVersion)));
     if (schemaVersion === '1.0' && review.operations !== undefined) throw new Error('reviews[].operations requiere schemaVersion "1.1".');
     for (const operation of Array.isArray(review.operations) ? review.operations : []) {
       const parsed = actionFromValue(operation, maintenanceId, String(schemaVersion), produced);
@@ -422,6 +433,44 @@ function tasksOf(detail: JsonRecord): JsonRecord[] {
 function activitiesOf(task: JsonRecord): JsonRecord[] { return (Array.isArray(task.activitys) ? task.activitys : []).map((item) => record(item, 'actividad actual')); }
 function idsOf(value: unknown): string[] { return (Array.isArray(value) ? value : []).map(idOf).filter((id): id is string => Boolean(id)); }
 function equipmentIdsOf(order: JsonRecord): string[] { return idsOf(order.equipments); }
+function requiredOrderId(value: unknown, field: string): string {
+  const id = idOf(value);
+  if (!id) throw new Error(`No se puede preparar el PUT de la orden: ${field} no contiene un ID inequívoco en la lectura viva.`);
+  return id;
+}
+function requiredOrderIds(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`No se puede preparar el PUT de la orden: ${field} no es una lista en la lectura viva.`);
+  return value.map((item, index) => requiredOrderId(item, `${field}[${index}]`));
+}
+function requiredLiveOrderField(order: JsonRecord, field: 'material' | 'observations'): unknown {
+  if (!Object.hasOwn(order, field) || order[field] === undefined) throw new Error(`No se puede preparar el PUT de la orden: falta ${field} en la lectura viva.`);
+  return order[field];
+}
+function liveOrderDatesForPut(value: unknown): unknown[] {
+  if (!Array.isArray(value)) throw new Error('No se puede preparar el PUT de la orden: dates no es una lista en la lectura viva.');
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+    const schedule = entry as JsonRecord;
+    if (!Object.hasOwn(schedule, 'users')) return { ...schedule };
+    return { ...schedule, users: requiredOrderIds(schedule.users, `dates[${index}].users`) };
+  });
+}
+function orderFormPutBody(order: JsonRecord, equipmentId: string): JsonRecord {
+  const equipments = requiredOrderIds(order.equipments, 'equipments');
+  const existingCount = equipments.filter((id) => id === equipmentId).length;
+  if (existingCount > 1) throw new Error(`No se puede preparar el PUT de la orden: equipmentId ${equipmentId} aparece más de una vez en la lectura viva.`);
+  if (existingCount === 0) equipments.push(equipmentId);
+  return {
+    type: requiredOrderId(order.type, 'type'),
+    customer: requiredOrderId(order.customer, 'customer'),
+    subsidiary: requiredOrderId(order.subsidiary, 'subsidiary'),
+    material: requiredLiveOrderField(order, 'material'),
+    observations: requiredLiveOrderField(order, 'observations'),
+    users: requiredOrderIds(order.users, 'users'),
+    dates: liveOrderDatesForPut(order.dates),
+    equipments,
+  };
+}
 function taskCurrent(detail: JsonRecord, taskId: string): { task: JsonRecord; taskIndex: number } {
   const tasks = tasksOf(detail); const taskIndex = tasks.findIndex((item) => idOf(item._id) === taskId);
   if (taskIndex < 0) throw new Error(`Conflicto: no existe la tarea ${taskId}.`); return { task: tasks[taskIndex], taskIndex };
@@ -735,8 +784,8 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
           if (!parsed.orderApproved) throw new Error(`Bloqueado en ${operationId}: se requiere order.approved para vincular un equipo nuevo.`);
           const mismatch = compareProtected(freshOrder, parsed.orderApproved);
           if (mismatch) throw new Error(`Conflicto en ${operationId}: el campo protegido ${mismatch} cambió en SIYS antes de vincular el equipo.`);
-          const nextEquipments = [...new Set([...equipmentIdsOf(freshOrder), equipmentId])];
-          await sendVerified(endpointFor(link.path, { orderId }), link.method, { equipments: nextEquipments }, link.response, async () => equipmentIdsOf(await loadOrder(orderId)).filter((id) => id === equipmentId).length === 1, { operationId, action: item.action, step: 'equipmentLink', status: 'completed', orderId });
+          const body = orderFormPutBody(freshOrder, equipmentId);
+          await sendVerified(endpointFor(link.path, { orderId }), link.method, body, link.response, async () => equipmentIdsOf(await loadOrder(orderId)).filter((id) => id === equipmentId).length === 1, { operationId, action: item.action, step: 'equipmentLink', status: 'completed', orderId });
         }
         order = await loadOrder(orderId);
         const linked = maintenanceIdsForEquipment(order, equipmentId);
