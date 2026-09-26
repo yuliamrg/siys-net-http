@@ -938,15 +938,47 @@ test('normaliza dates[].user y dates[].users sin alterar start ni end', async ()
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('finalizeOrder: state 2 en dry-run cuenta una escritura y no envía PUT', async () => {
+test('finalizeOrder: state 2 en dry-run con código numérico vivo 7644 cuenta una escritura y no envía PUT', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  const order = baseOrder({ state: 2, close: false });
+  const order = baseOrder({ code: 7644, state: 2, close: false });
   const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
   const methods: string[] = [];
   global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
   const result = await applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false });
   expect(result.plannedWrites).toBe(1); expect(result.planned).toHaveLength(1); expect(result.applied).toHaveLength(0);
   expect(methods.every((method) => method === 'GET')).toBe(true);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('normalizeCode: códigos equivalentes aceptan numérico y ceros a la izquierda en el flujo 1.2', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  for (const liveCode of [7644, '7644']) {
+    const order = baseOrder({ code: liveCode, state: 2, close: false });
+    const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+    const methods: string[] = [];
+    global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
+    const result = await applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false });
+    expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(0);
+    expect(methods.every((method) => method === 'GET')).toBe(true);
+    await fs.rm(files.directory, { recursive: true, force: true });
+  }
+});
+
+test('normalizeCode: código decimal vivo sigue rechazado por conflicto', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ code: 7644.5, state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  global.fetch = async () => orderResponse(order);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/Conflicto/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('normalizeCode: código alfanumérico vivo sigue rechazado por conflicto', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ code: '007a44', state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  global.fetch = async () => orderResponse(order);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/Conflicto/);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 

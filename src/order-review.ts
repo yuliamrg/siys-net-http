@@ -212,7 +212,10 @@ function normalizeName(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/[-_/]+/g, ' ').replace(/\s+/g, ' ');
 }
 function normalizeCode(value: unknown): string | undefined {
-  const text = string(value); if (!text || !/^\d+$/.test(text)) return undefined; return text.replace(/^0+(?=\d)/, '');
+  let text: string | undefined;
+  if (typeof value === 'number' && Number.isInteger(value) && Number.isFinite(value) && value >= 0) text = String(value);
+  else if (typeof value === 'string' && /^\d+$/.test(value)) text = value;
+  if (!text || !/^\d+$/.test(text)) return undefined; return text.replace(/^0+(?=\d)/, '');
 }
 async function readJson(file: string, label: string): Promise<JsonRecord> {
   try { return record(await readJsonFile<unknown>(file, label), label); }
