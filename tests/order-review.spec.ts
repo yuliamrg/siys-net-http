@@ -779,3 +779,24 @@ test('plantilla D: un equipo duplicado bloquea sin escribir', async () => {
   expect(calls.every((method) => method === 'GET')).toBe(true);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
+
+test('plantilla 1.2: addImage reutiliza un fileId existente sin subir el binario', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const maintenance12: any = { _id: 'm-1', tasks: [{ _id: 'task-1', activitys: [{ _id: 'activity-1', name: '', reply: '', file: [{ _id: 'file-1' }], hiddenFile: [] }] }] };
+  const files = await writeFiles(task12Draft({ code: '007644' }, [
+    { operationId: 'op-attach', action: 'addImage', maintenanceId: 'm-1', taskId: 'task-1', activityId: 'activity-1', fileId: 'file-existing', original: { fileIds: ['file-1'] } },
+  ]), CONTRACT_12);
+  const writes: string[] = [];
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET') return response(maintenance12);
+    writes.push(`${init?.method} ${url}`);
+    if (url.includes('/add-file/file-existing')) { maintenance12.tasks[0].activitys[0].file.push({ _id: 'file-existing' }); return response({}); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(1);
+  expect(writes).toHaveLength(1); expect(writes[0]).toContain('PATCH'); expect(writes[0]).toContain('/add-file/file-existing');
+  expect(maintenance12.tasks[0].activitys[0].file).toEqual([{ _id: 'file-1' }, { _id: 'file-existing' }]);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
