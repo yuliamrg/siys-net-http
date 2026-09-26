@@ -11,7 +11,7 @@ type EntityType = 'maintenance' | 'task' | 'activity';
 type HttpMethod = 'PATCH' | 'PUT' | 'POST';
 type ResponseKind = 'json' | 'text' | 'empty';
 type ProducedType = 'maintenance' | 'task' | 'activity';
-type ActionName = 'addActivity' | 'addImage' | 'setImageVisibility' | 'setActivityVisibility' | 'ensureEquipmentMaintenance' | 'addTaskGeneral';
+type ActionName = 'addActivity' | 'addImage' | 'setImageVisibility' | 'setActivityVisibility' | 'ensureEquipmentMaintenance' | 'addTaskGeneral' | 'finalizeOrder';
 
 interface FieldContract {
   originalPath: string;
@@ -98,6 +98,11 @@ export interface AuditStep {
   orderId?: string;
   taskIndex?: number;
   activityIndex?: number;
+  /** Estado de la orden observado antes de una transición (solo finalize). */
+  stateBefore?: number;
+  stateAfter?: number;
+  closeBefore?: boolean;
+  closeAfter?: boolean;
   error?: string;
 }
 export interface ApplyReviewOptions {
@@ -160,6 +165,9 @@ const EXPECTED_ACTIONS: Record<ActionName, Record<string, ExpectedStep>> = {
   ensureEquipmentMaintenance: {
     linkEquipment: { method: 'PUT', path: '/order/{orderId}', responses: ['json', 'empty', 'text'], response: 'json' },
     createMaintenance: { method: 'POST', path: '/maintenance/empty', responses: ['json', 'empty', 'text'], response: 'json' },
+  },
+  finalizeOrder: {
+    update: { method: 'PUT', path: '/order/{orderId}', responses: ['json', 'empty', 'text'], response: 'json' },
   },
 };
 
@@ -262,7 +270,7 @@ function parseContract(value: JsonRecord): WriteContract {
     const source = record(value.actions ?? {}, 'actions del contrato');
     for (const action of Object.keys(EXPECTED_ACTIONS) as ActionName[]) {
       if (source[action] === undefined) continue;
-      if (version === '1.1' && (action === 'ensureEquipmentMaintenance' || action === 'addTaskGeneral')) throw new Error(`La acción ${action} requiere un contrato schemaVersion "1.2".`);
+      if (version === '1.1' && (action === 'ensureEquipmentMaintenance' || action === 'addTaskGeneral' || action === 'finalizeOrder')) throw new Error(`La acción ${action} requiere un contrato schemaVersion "1.2".`);
       const raw = record(source[action], `acción ${action}`); const parsed: ActionContract = {};
       for (const step of Object.keys(EXPECTED_ACTIONS[action])) parsed[step as keyof ActionContract] = endpointContract(raw[step], action, step);
       actions[action] = parsed;
@@ -329,7 +337,7 @@ function actionFromValue(value: unknown, reviewMaintenanceId: string | undefined
   if (!operationId || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$/.test(operationId)) throw new Error('Cada operación requiere operationId único (3-80 caracteres).');
   if (!action || !(action in EXPECTED_ACTIONS)) throw new Error(`Operación ${operationId} inválida.`);
   const is12 = schemaVersion === '1.2';
-  if (!is12 && (action === 'ensureEquipmentMaintenance' || action === 'addTaskGeneral')) throw new Error(`La acción ${action} requiere schemaVersion "1.2"; no se reinterpreta un borrador anterior.`);
+  if (!is12 && (action === 'ensureEquipmentMaintenance' || action === 'addTaskGeneral' || action === 'finalizeOrder')) throw new Error(`La acción ${action} requiere schemaVersion "1.2"; no se reinterpreta un borrador anterior.`);
   const maintenanceId = string(item.maintenanceId); const maintenanceRef = refValue(item, 'maintenanceRef', operationId);
   const taskId = string(item.taskId); const taskRef = refValue(item, 'taskRef', operationId);
   const activityId = string(item.activityId); const activityRef = refValue(item, 'activityRef', operationId);
@@ -344,13 +352,17 @@ function actionFromValue(value: unknown, reviewMaintenanceId: string | undefined
     if (!target) throw new Error(`La operación ${operationId} referencia ${ref}, que no aparece antes en el archivo.`);
     if (target !== type) throw new Error(`La operación ${operationId} usa ${type}Ref hacia una operación que produce ${target}.`);
   }
-  const needsMaintenance = action !== 'ensureEquipmentMaintenance';
+  const needsMaintenance = action !== 'ensureEquipmentMaintenance' && action !== 'finalizeOrder';
   let baseMaintenanceId = maintenanceId;
   if (!baseMaintenanceId && !maintenanceRef) {
     if (is12) { if (needsMaintenance) throw new Error(`La operación ${operationId} debe declarar maintenanceId o maintenanceRef.`); }
     else if (needsMaintenance) baseMaintenanceId = reviewMaintenanceId;
   }
 
+  if (action === 'finalizeOrder') {
+    if (maintenanceId || maintenanceRef || taskId || taskRef || activityId || activityRef || string(item.equipmentId)) throw new Error(`${operationId} no admite referencias de mantenimiento, tarea, actividad ni equipo.`);
+    return { kind: 'action', operationId, action, original: {} };
+  }
   if (action === 'ensureEquipmentMaintenance') {
     if (maintenanceId || maintenanceRef || taskId || taskRef || activityId || activityRef) throw new Error(`${operationId} no admite referencias de mantenimiento, tarea o actividad.`);
     const equipmentId = string(item.equipmentId); if (!equipmentId) throw new Error(`${operationId} requiere equipmentId.`);
@@ -417,7 +429,7 @@ function parseReview(value: JsonRecord, requireApproved: boolean): { schemaVersi
       const parsed = actionFromValue(operation, maintenanceId, String(schemaVersion), produced);
       if (ids.has(parsed.operationId)) throw new Error(`operationId duplicado: ${parsed.operationId}.`);
       ids.add(parsed.operationId);
-      if (parsed.action === 'ensureEquipmentMaintenance') needsOrderId = true;
+      if (parsed.action === 'ensureEquipmentMaintenance' || parsed.action === 'finalizeOrder') needsOrderId = true;
       const produces = ACTION_PRODUCES[parsed.action]; if (produces) produced.set(parsed.operationId, produces);
       items.push(parsed);
     }
@@ -451,8 +463,10 @@ function liveOrderDatesForPut(value: unknown): unknown[] {
   return value.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
     const schedule = entry as JsonRecord;
-    if (!Object.hasOwn(schedule, 'users')) return { ...schedule };
-    return { ...schedule, users: requiredOrderIds(schedule.users, `dates[${index}].users`) };
+    const normalized: JsonRecord = { ...schedule };
+    if (Object.hasOwn(schedule, 'user')) normalized.user = requiredOrderId(schedule.user, `dates[${index}].user`);
+    if (Object.hasOwn(schedule, 'users')) normalized.users = requiredOrderIds(schedule.users, `dates[${index}].users`);
+    return normalized;
   });
 }
 function orderFormPutBody(order: JsonRecord, equipmentId: string): JsonRecord {
@@ -510,6 +524,7 @@ function estimatedWrites(item: WorkItem): number {
     case 'addImage': return item.source ? 2 : 1;
     case 'ensureEquipmentMaintenance': return 2;
     case 'addTaskGeneral': return 2;
+    case 'finalizeOrder': return 1;
     default: return 1;
   }
 }
@@ -522,6 +537,7 @@ function finalStep(item: WorkItem): string {
   if (item.action === 'addImage') return 'attach';
   if (item.action === 'ensureEquipmentMaintenance') return 'ensure';
   if (item.action === 'addTaskGeneral') return 'task';
+  if (item.action === 'finalizeOrder') return 'finalize';
   return 'visibility';
 }
 async function detailFor(maintenanceId: string, token: string): Promise<JsonRecord> {
@@ -575,6 +591,32 @@ function classifyEnsure(order: JsonRecord, equipmentId: string): EnsureClass {
   if (maintenanceIds.length === 1) return { status: 'alreadyApplied', maintenanceId: maintenanceIds[0] };
   return { status: 'pending', writes: 2 };
 }
+function stateNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  return undefined;
+}
+type FinalizeClass =
+  | { status: 'alreadyApplied'; state?: number; close: boolean; reason: 'finalized' | 'closed' }
+  | { status: 'pending'; state: 2; close: boolean }
+  | { status: 'unsupported'; state: unknown };
+/**
+ * Solo se acredita una transición: `state = 2` → `state = 3` mediante
+ * `PUT /order/{orderId}` con `{"state":3}`. Un estado posterior o cerrado se
+ * respeta sin degradarlo; cualquier otro estado queda sin contrato y se bloquea.
+ */
+function classifyFinalize(order: JsonRecord): FinalizeClass {
+  const state = stateNumber(order.state);
+  const close = order.close === true;
+  if (state === 3) return { status: 'alreadyApplied', state, close, reason: 'finalized' };
+  if (close) return { status: 'alreadyApplied', state, close, reason: 'closed' };
+  if (state === 6) return { status: 'alreadyApplied', state, close, reason: 'closed' };
+  if (state === 2) return { status: 'pending', state: 2, close };
+  return { status: 'unsupported', state: order.state };
+}
+function unsupportedTransition(operationId: string, state: unknown): Error {
+  return Object.assign(new Error(`Transición no soportada en ${operationId}: unsupported_order_state_transition (state=${String(state ?? '(sin estado)')}).`), { code: 'unsupported_order_state_transition' });
+}
 function assertOrderCode(order: JsonRecord, code: string): void {
   const actual = normalizeCode(order.code); const expected = normalizeCode(code);
   if (!actual || !expected || actual !== expected) throw new Error(`Conflicto: el ID de orden corresponde a ${String(order.code ?? '(sin código)')}, no a ${code}.`);
@@ -627,6 +669,7 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
       if (item.source && !actionContract.upload) throw new Error('El contrato no define upload para addImage con archivo nuevo.');
     }
     if (item.action === 'addActivity' && (!actionContract.create || !actionContract.name || !actionContract.reply)) throw new Error('El contrato no define create, name y reply para addActivity.');
+    if (item.action === 'finalizeOrder' && !actionContract.update) throw new Error('El contrato no define update para finalizeOrder.');
   }
   const maxChanges = options.maxChanges ?? 20;
   if (!Number.isInteger(maxChanges) || maxChanges < 1) throw new Error('maxChanges debe ser un entero positivo.');
@@ -676,6 +719,18 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
     if (item.kind === 'field') {
       const field = contract.operations[item.entity]!.fields[item.field]; item.writes = 1;
       (stateOf(entityCurrent(await liveDetail(item.maintenanceId), item), field, item) === 'alreadyApplied' ? alreadyApplied : pending).push(item); continue;
+    }
+    if (item.action === 'finalizeOrder') {
+      const orderId = requireResolved(parsed.orderId, 'orderId', operationId);
+      const order = await liveOrder(orderId); assertOrderCode(order, parsed.orderCode);
+      const classification = classifyFinalize(order);
+      if (classification.status === 'unsupported') throw unsupportedTransition(operationId, classification.state);
+      if (classification.status === 'alreadyApplied') {
+        item.writes = 0; alreadyApplied.push(item);
+        resolvedProducerSteps.push({ operationId, action: item.action, step: 'finalize', status: 'alreadyApplied', orderId, stateBefore: classification.state, stateAfter: classification.state, closeBefore: classification.close, closeAfter: classification.close });
+        continue;
+      }
+      item.writes = 1; pending.push(item); continue;
     }
     if (item.action === 'ensureEquipmentMaintenance') {
       const orderId = requireResolved(parsed.orderId, 'orderId', operationId); const equipmentId = item.equipmentId!;
@@ -765,6 +820,63 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
         const body: JsonRecord = {}; setPath(body, field.bodyPath, item.proposed);
         await sendVerified(endpointFor(field.path ?? operation.path, item), field.method ?? operation.method, body, 'json', async () => equal(getPath(entityCurrent(await loadDetail(item.maintenanceId), item), field.verifyPath), item.proposed), { operationId, action: `${item.entity}.${item.field}`, step: 'write', status: 'completed', maintenanceId: item.maintenanceId, taskId: item.taskId, activityId: item.activityId });
         result.applied.push(item); continue;
+      }
+      if (item.action === 'finalizeOrder') {
+        const orderId = requireResolved(parsed.orderId, 'orderId', operationId);
+        const update = contract.actions[item.action]!.update!;
+        const plan = await loadOrder(orderId); assertOrderCode(plan, parsed.orderCode);
+        const planned = classifyFinalize(plan);
+        if (planned.status === 'unsupported') {
+          result.audit.status = 'failed';
+          await progress({ operationId, action: item.action, step: 'finalize', status: 'failed', orderId, stateBefore: stateNumber(planned.state), error: 'unsupported_order_state_transition' });
+          throw unsupportedTransition(operationId, planned.state);
+        }
+        if (planned.status === 'alreadyApplied') {
+          item.writes = 0; result.alreadyApplied.push(item);
+          await progress({ operationId, action: item.action, step: 'finalize', status: 'alreadyApplied', orderId, stateBefore: planned.state, stateAfter: planned.state, closeBefore: planned.close, closeAfter: planned.close });
+          continue;
+        }
+        const stateBefore = planned.state; const closeBefore = planned.close;
+        const fresh = await loadOrder(orderId); assertOrderCode(fresh, parsed.orderCode);
+        const rechecked = classifyFinalize(fresh);
+        if (rechecked.status === 'unsupported') {
+          result.audit.status = 'failed';
+          await progress({ operationId, action: item.action, step: 'finalize', status: 'failed', orderId, stateBefore, error: 'unsupported_order_state_transition' });
+          throw unsupportedTransition(operationId, rechecked.state);
+        }
+        if (rechecked.status === 'alreadyApplied') {
+          item.writes = 0; result.alreadyApplied.push(item);
+          await progress({ operationId, action: item.action, step: 'finalize', status: 'alreadyApplied', orderId, stateBefore, stateAfter: rechecked.state, closeBefore, closeAfter: rechecked.close });
+          continue;
+        }
+        const closeImmediatelyBefore = rechecked.close;
+        let writeError: unknown;
+        try { await sendApiJson(endpointFor(update.path, { orderId }), token, update.method, { state: 3 }, options.timeoutMs, { responseType: update.response }); }
+        catch (error) {
+          writeError = error;
+          if (!isAmbiguousWrite(error)) {
+            result.audit.status = 'failed';
+            await progress({ operationId, action: item.action, step: 'finalize', status: 'failed', orderId, stateBefore, error: error instanceof Error ? error.message : String(error) });
+            throw error;
+          }
+        }
+        const after = await loadOrder(orderId);
+        const stateAfter = stateNumber(after.state); const closeAfter = after.close === true;
+        if (stateAfter === 3) {
+          item.writes = 1; result.applied.push(item);
+          await progress({ operationId, action: item.action, step: 'finalize', status: 'completed', orderId, stateBefore, stateAfter: 3, closeBefore: closeImmediatelyBefore, closeAfter });
+          await delay(); continue;
+        }
+        if (writeError) {
+          result.audit.status = 'ambiguous';
+          const message = writeError instanceof Error ? writeError.message : String(writeError);
+          await progress({ operationId, action: item.action, step: 'finalize', status: 'ambiguous', orderId, stateBefore, stateAfter, closeBefore: closeImmediatelyBefore, closeAfter, error: message });
+          throw writeError instanceof Error ? writeError : new Error(message);
+        }
+        result.audit.status = 'failed';
+        const message = `Verificación fallida para ${operationId}.finalize: state=${String(after.state ?? '(sin estado)')}.`;
+        await progress({ operationId, action: item.action, step: 'finalize', status: 'failed', orderId, stateBefore, stateAfter, closeBefore: closeImmediatelyBefore, closeAfter, error: message });
+        throw new Error(message);
       }
       const actionContract = contract.actions[item.action]!;
       const targets = actionTargets(item, runtimeProduced);

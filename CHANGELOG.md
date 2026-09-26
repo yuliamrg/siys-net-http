@@ -12,11 +12,13 @@ Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la C
 - Archivo SQLite de todas las respuestas JSON GET, con `cache search reads` y `cache read` para localizar consultas de detalle y otras lecturas directas.
 - `order apply-review` con revisión y contrato `1.2`: acciones `ensureEquipmentMaintenance` y `addTaskGeneral`, snapshot aprobado `order.approved`, referencias `operationId` hacia atrás y reconciliación por relectura ante respuestas ambiguas. Una cadena `ensureEquipmentMaintenance → addTaskGeneral → addActivity → addImage` se aprueba y ejecuta en una sola revisión.
 - `order apply-review` 1.2 admite asociar un `fileId` SIYS existente en `addImage` sin volver a subir el binario.
+- `order apply-review` 1.2 añade la acción `finalizeOrder` (`PUT /order/{orderId}` con `{"state":3}`): relee la orden antes y después, respeta `state 3`/`state 6`/`close = true` sin degradarlos, bloquea transiciones sin contrato con `unsupported_order_state_transition`, reconcilia timeout/5xx por relectura, no reintenta la mutación y puede cerrar un lote `ensureEquipmentMaintenance → addTaskGeneral → addActivity → addImage → finalizeOrder` con una sola aprobación.
 
 ### Corregido
 
 - `order create` admite franjas puntuales con `startLocal == endLocal` y consulta su disponibilidad por GET; sigue rechazando rangos invertidos.
 - `order apply-review` 1.1 relee la lista de actividades justo antes del PATCH de `addActivity` y falla por conflicto si cambió desde la baseline aprobada, en lugar de continuar en silencio.
+- `order apply-review` normaliza `dates[].user` (objeto o ID) y `dates[].users` al preparar el PUT del formulario, conservando `start`, `end` y los demás campos de la programación viva.
 
 ### Seguridad
 

@@ -11,6 +11,12 @@ El flujo debe conservar separadas estas propiedades:
 - `maintenance.equipmentState`: condición del equipo (`1` funcionando, `2` con novedad, `3` fuera de funcionamiento). No es el estado de la orden.
 - `activity.complete`: estado de una actividad. Su actualización no tiene todavía una ruta confirmada.
 
+> Estado de implementación (actualizado): la transición a Finalizada se implementó como la
+> acción `finalizeOrder` del contrato `order apply-review` `1.2`, no como un comando
+> `order lifecycle` separado. Las secciones que proponen un contrato o un comando de ciclo
+> de vida independientes quedan como antecedente; `clone-maintenance`, `state = 6`,
+> `close = true` y el cierre de `activity.complete` siguen sin implementarse.
+
 ## Evidencia del ensayo en SIYS
 
 Los snapshots completos y las auditorías con datos de producción permanecen en las carpetas locales de exportación y `%TEMP%`; no se incluyen aquí credenciales, IDs internos, datos personales ni fotos.
@@ -94,7 +100,7 @@ El override no debe ser implícito ni convertir el bloqueo en una advertencia si
 
 ## Contrato privado propuesto
 
-Crear un contrato de ciclo de vida separado del contrato de `order apply-review`, para no mezclar cambios de texto/fotos con transiciones de estado y creación de estructuras. Versionar el esquema sin romper contratos 1.0/1.1 existentes.
+~~Crear un contrato de ciclo de vida separado del contrato de `order apply-review`~~. Descartado: la transición se añadió como la acción `finalizeOrder` del contrato `1.2` de `order apply-review`, sin romper los contratos 1.0/1.1 existentes.
 
 Operaciones candidatas, limitadas a las observadas:
 
@@ -149,4 +155,4 @@ El contrato debe permitir explícitamente los tipos de respuesta esperados (`jso
 - `docs/order-review-write-contract.md` o un nuevo `docs/order-lifecycle-contract.md`: alcance del contrato y flujos capturados.
 - `docs/cli-manual.md`, `CHANGELOG.md` y `docs/security-and-storage.md`: comandos, recuperación y almacenamiento de auditorías.
 
-Este plan no implementa todavía los comandos ni habilita el endpoint de actividad no confirmado.
+La finalización (`state = 3`) sí quedó implementada como `finalizeOrder` dentro de `order apply-review` `1.2`; `clone-maintenance` y el endpoint de actividad no confirmado siguen fuera del contrato.

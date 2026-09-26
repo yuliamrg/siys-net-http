@@ -1,6 +1,6 @@
 # Aplicación segura de revisiones de orden
 
-`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`) y crear la tarea General (`addTaskGeneral`), encadenando esas operaciones mediante referencias `operationId`. No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
+`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`), crear la tarea General (`addTaskGeneral`) y pasar la orden a **Finalizada** (`finalizeOrder`), encadenando esas operaciones mediante referencias `operationId`. No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
 
 Antes de habilitar una ruta de escritura, capturar una edición equivalente en SIYS y validar manualmente el método, URL y cuerpo. Guardar el resultado en una ruta privada; la CLI no trae un contrato activo ni adivina endpoints.
 
@@ -125,7 +125,7 @@ En una revisión `1.0`/`1.1` no se puede referenciar en el mismo JSON una activi
 
 ## Contrato 1.2 para completar estructuras
 
-El contrato `1.2` conserva el contrato `1.1` y añade dos acciones y referencias `operationId`. Un borrador `1.2` exige un contrato `1.2`; un borrador `1.0`/`1.1` nunca se reinterpreta como `1.2`.
+El contrato `1.2` conserva el contrato `1.1` y añade tres acciones y referencias `operationId`. Un borrador `1.2` exige un contrato `1.2`; un borrador `1.0`/`1.1` nunca se reinterpreta como `1.2`.
 
 ```json
 {
@@ -139,6 +139,9 @@ El contrato `1.2` conserva el contrato `1.1` y añade dos acciones y referencias
     "ensureEquipmentMaintenance": {
       "linkEquipment": { "method": "PUT", "path": "/order/{orderId}" },
       "createMaintenance": { "method": "POST", "path": "/maintenance/empty" }
+    },
+    "finalizeOrder": {
+      "update": { "method": "PUT", "path": "/order/{orderId}" }
     }
   }
 }
@@ -171,6 +174,31 @@ Tras `POST /maintenance/empty` la relectura de la orden decide: exactamente un m
 
 La comparación de nombres es determinística y normalizada (sin acentos, minúsculas, espacios y separadores colapsados), nunca difusa.
 
+### finalizeOrder
+
+`finalizeOrder` usa `order.orderId` del borrador y no declara `maintenanceId`, refs ni `state`. Su único objetivo es `state = 3` (Finalizada) mediante `PUT /order/{orderId}` con el cuerpo exacto `{"state":3}`; no toca `close` ni intenta `state = 6`. No se usa el PUT completo del formulario para esta acción.
+
+Ejemplo de acción:
+
+```json
+{ "operationId": "finalize", "action": "finalizeOrder" }
+```
+
+Antes de escribir se relee la orden viva por `orderId` y se confirma el código. La clasificación es cerrada:
+
+- `state == 3` → `alreadyApplied`, 0 escrituras.
+- `state == 6` o `close == true` → 0 escrituras; se respeta el estado posterior/cerrado y no se degrada. No es un error operativo.
+- `state == 2` → finalización permitida, 1 escritura planificada.
+- cualquier otro estado → no hay contrato de transición; se bloquea solo esa transición con `unsupported_order_state_transition`.
+
+Justo antes del `PUT` se vuelve a leer la orden: si sigue en `state == 2` se envía una sola vez; si ya quedó en `state == 3`, `state == 6` o con `close == true`, no se escribe; si cambió a un estado sin contrato, se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: el éxito exige `state == 3` y se registra `close` antes/después para comprobar que no cambió en silencio. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `state == 3`, la finalización se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta.
+
+`finalizeOrder` no impone readiness inventado: la CLI no bloquea la finalización porque `activity.complete` sea `false`, un equipo tenga `equipmentState = 2`, un mantenimiento registre novedades o falten fotografías. Esos datos son contexto para la coordinadora, no precondiciones acreditadas del backend, y la CLI tampoco los corrige.
+
+`finalizeOrder` puede ser la última operación de un lote `1.2` (por ejemplo `ensureEquipmentMaintenance → addTaskGeneral → addActivity → addImage → finalizeOrder`) bajo una sola aprobación. Si una operación previa queda `FAILED`, `CONFLICT` o `AMBIGUOUS`, la finalización no se ejecuta.
+
+El paso de auditoría se llama `finalize` y registra `orderId`, el estado previo, el estado verificado posterior y el resultado `completed`/`alreadyApplied`/`ambiguous`/`failed`.
+
 ### Referencias backward-only
 
 `maintenanceRef`, `taskRef` y `activityRef` apuntan al `operationId` de una operación que aparece antes en el archivo. Para una misma entidad se declara `id` XOR `ref`, nunca ambos. Cada referencia debe apuntar al tipo que la operación referenciada produce (`ensureEquipmentMaintenance` → `maintenanceId`, `addTaskGeneral` → `taskId`, `addActivity` → `activityId`); las referencias futuras, cruzadas o a tipos incompatibles se rechazan antes de toda lectura remota. Las operaciones de una revisión `1.2` que necesitan un mantenimiento declaran `maintenanceId` o `maintenanceRef` explícito. `reviews[].maintenanceId` puede omitirse únicamente cuando la revisión no contiene ediciones legacy de maintenance, `tasks[]` o `activities[]`; los esquemas `1.0` y `1.1` lo siguen requiriendo.
@@ -199,7 +227,7 @@ Ejemplo de una sola revisión aprobada que completa la estructura de un equipo:
 
 ### Writer count y reconciliación
 
-`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1. `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
+`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1; `finalizeOrder`, 1 con `state == 2` y 0 si ya está finalizada o posterior. `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
 
 Después de un timeout, un HTTP 5xx, una respuesta no JSON o inesperada, la CLI relee el estado específico y decide `completed`, `alreadyApplied`, `failed` o `ambiguous`. Nunca reintenta una mutación incierta. Una respuesta ambigua detiene la reanudación automática: solo se reutilizan IDs `completed`, `alreadyApplied` o confirmados por lectura viva.
 

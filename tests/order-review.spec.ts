@@ -441,6 +441,9 @@ const CONTRACT_12 = {
       linkEquipment: { method: 'PUT', path: '/order/{orderId}' },
       createMaintenance: { method: 'POST', path: '/maintenance/empty' },
     },
+    finalizeOrder: {
+      update: { method: 'PUT', path: '/order/{orderId}' },
+    },
   },
 };
 
@@ -900,5 +903,200 @@ test('plantilla 1.2: addImage reutiliza un fileId existente sin subir el binario
   expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(1);
   expect(writes).toHaveLength(1); expect(writes[0]).toContain('PATCH'); expect(writes[0]).toContain('/add-file/file-existing');
   expect(maintenance12.tasks[0].activitys[0].file).toEqual([{ _id: 'file-1' }, { _id: 'file-existing' }]);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+function finalizeDraft(order: Record<string, unknown>): Record<string, unknown> {
+  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ original: {}, proposed: {}, operations: [{ operationId: 'op-finalize', action: 'finalizeOrder' }] }] };
+}
+
+test('normaliza dates[].user y dates[].users sin alterar start ni end', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = formReadyOrder({
+    equipments: [{ _id: 'eq-existing' }], maintenances: [],
+    dates: [
+      { _id: 'd1', date: '2026-01-01', start: '08:00', end: '10:00', user: { _id: 'tech-user' }, users: [{ _id: 'tech-a' }, { _id: 'tech-b' }] },
+      { _id: 'd2', date: '2026-01-02', start: '11:00', end: '12:00', user: 'tech-string' },
+    ],
+  });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [ENSURE_OP]), CONTRACT_12);
+  const writes: Array<{ method?: string; url: string; body?: string }> = [];
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET') return orderResponse(order);
+    writes.push({ method: init?.method, url, body: init?.body as string });
+    if (url.endsWith('/api/order/order-1')) { Object.assign(order, JSON.parse(String(init?.body))); return response({ ok: true }); }
+    if (url.endsWith('/api/maintenance/empty')) { order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  const put = JSON.parse(writes.find((write) => write.method === 'PUT')!.body!) as { dates: unknown[] };
+  expect(put.dates).toEqual([
+    { _id: 'd1', date: '2026-01-01', start: '08:00', end: '10:00', user: 'tech-user', users: ['tech-a', 'tech-b'] },
+    { _id: 'd2', date: '2026-01-02', start: '11:00', end: '12:00', user: 'tech-string' },
+  ]);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: state 2 en dry-run cuenta una escritura y no envía PUT', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  const methods: string[] = [];
+  global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false });
+  expect(result.plannedWrites).toBe(1); expect(result.planned).toHaveLength(1); expect(result.applied).toHaveLength(0);
+  expect(methods.every((method) => method === 'GET')).toBe(true);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: state 2 confirmado envía un único PUT {"state":3} y verifica', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  const writes: Array<{ method?: string; url: string; body?: string }> = [];
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET') return orderResponse(order);
+    writes.push({ method: init?.method, url, body: init?.body as string });
+    if (url.endsWith('/api/order/order-1')) { order.state = JSON.parse(String(init?.body)).state; return response({ ok: true }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(writes).toHaveLength(1); expect(writes[0].method).toBe('PUT'); expect(writes[0].body).toBe('{"state":3}');
+  expect(order.state).toBe(3); expect(result.applied).toHaveLength(1); expect(result.audit.status).toBe('completed');
+  expect(result.steps.at(-1)).toMatchObject({ operationId: 'op-finalize', step: 'finalize', status: 'completed', stateBefore: 2, stateAfter: 3, closeBefore: false, closeAfter: false });
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: state 3 queda alreadyApplied sin escribir', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ state: 3, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  const methods: string[] = [];
+  global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(0); expect(result.applied).toHaveLength(0); expect(result.alreadyApplied).toHaveLength(1);
+  expect(methods.every((method) => method === 'GET')).toBe(true);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: state 6 o close true no degradan y no escriben', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  for (const order of [baseOrder({ state: 6, close: false }), baseOrder({ state: 2, close: true })]) {
+    const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+    const methods: string[] = [];
+    global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
+    const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+    expect(result.plannedWrites).toBe(0); expect(result.applied).toHaveLength(0); expect(result.alreadyApplied).toHaveLength(1);
+    expect(methods.every((method) => method === 'GET')).toBe(true);
+    await fs.rm(files.directory, { recursive: true, force: true });
+  }
+});
+
+test('finalizeOrder: cambio externo a finalizada no escribe; transición desconocida bloquea', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  let gets = 0; let puts = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') { gets += 1; return orderResponse(baseOrder({ state: gets === 1 ? 2 : 3, close: false })); }
+    puts += 1; return response({ ok: true });
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(puts).toBe(0); expect(result.applied).toHaveLength(0); expect(result.alreadyApplied).toHaveLength(1);
+  await fs.rm(files.directory, { recursive: true, force: true });
+
+  const blocked = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  let reads = 0; let blockedPuts = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') { reads += 1; return orderResponse(baseOrder({ state: reads === 1 ? 2 : 1, close: false })); }
+    blockedPuts += 1; return response({ ok: true });
+  };
+  await expect(applyReview(blocked.draftPath, { contractPath: blocked.contractPath, confirm: true, autoLogin: false, delayMs: 0 })).rejects.toThrow(/unsupported_order_state_transition/);
+  expect(blockedPuts).toBe(0);
+  await fs.rm(blocked.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: un 500 con state 3 confirmado reconcilia como completed sin reintentar', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  let puts = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return orderResponse(order);
+    puts += 1; order.state = 3; return response({ message: 'boom' }, 500);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(puts).toBe(1); expect(result.audit.status).toBe('completed'); expect(result.applied).toHaveLength(1);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: un PUT ambiguo sin state 3 queda ambiguous sin reintentar', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ state: 2, close: false });
+  const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  let puts = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return orderResponse(order);
+    puts += 1; return response({ message: 'boom' }, 500);
+  };
+  let error: any;
+  try { await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 }); }
+  catch (caught) { error = caught; }
+  expect(puts).toBe(1); expect(error.applyResult.audit.status).toBe('ambiguous');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: cadena ensure→task→activity→finalize deja la finalización de último', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ equipments: ['eq-1'], maintenances: [], state: 2, close: false, material: 'M' });
+  const maintenance12: any = { _id: 'm-2', tasks: [] };
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    ENSURE_OP,
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceRef: 'op-ensure' },
+    { operationId: 'op-activity', action: 'addActivity', maintenanceRef: 'op-ensure', taskRef: 'op-task', original: { activityIds: [] }, proposed: { name: 'Nueva', reply: 'Descripción' } },
+    { operationId: 'op-finalize', action: 'finalizeOrder' },
+  ]), CONTRACT_12);
+  const writes: string[] = [];
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET' && url.includes('/api/order/order-1/detail')) return orderResponse(order);
+    if (init?.method === 'GET' && url.includes('/api/maintenance/m-2/detail')) return response(maintenance12);
+    writes.push(`${init?.method} ${new URL(url).pathname}`);
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/empty')) { order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/m-2/add-task-general')) { maintenance12.tasks.push({ _id: 't-2', name: 'General', activitys: [] }); return textResponse('ok'); }
+    if (init?.method === 'PATCH' && url.endsWith('/add-activity')) { maintenance12.tasks[0].activitys.push({ _id: 'a-2', name: '', reply: '', file: [], hiddenFile: [] }); return response({ _id: 'a-2' }); }
+    const activity = maintenance12.tasks[0]?.activitys?.[0];
+    if (init?.method === 'PUT' && url.includes('field=nameCorrected')) { activity.nameCorrected = { reply: JSON.parse(String(init.body)).reply }; return response({}); }
+    if (init?.method === 'PUT' && url.includes('field=replyCorrected')) { activity.replyCorrected = { reply: JSON.parse(String(init.body)).reply }; return response({}); }
+    if (init?.method === 'PUT' && url.endsWith('/api/order/order-1')) { order.state = JSON.parse(String(init.body)).state; return response({ ok: true }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(6); expect(result.applied).toHaveLength(4); expect(result.audit.status).toBe('completed');
+  expect(writes.at(-1)).toBe('PUT /api/order/order-1');
+  expect(result.steps.at(-1)).toMatchObject({ operationId: 'op-finalize', step: 'finalize', status: 'completed', stateBefore: 2, stateAfter: 3 });
+  expect(order.state).toBe(3);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('finalizeOrder: una operación previa fallida no llega a finalizar', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ equipments: ['eq-1'], maintenances: [], state: 2, close: false, material: 'M' });
+  const maintenance12: any = { _id: 'm-1', tasks: [{ _id: 't1', name: 'Otra tarea', activitys: [] }] };
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' },
+    { operationId: 'op-finalize', action: 'finalizeOrder' },
+  ]), CONTRACT_12);
+  let puts = 0;
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET' && url.includes('/api/order/order-1/detail')) return orderResponse(order);
+    if (init?.method === 'GET' && url.includes('/api/maintenance/m-1/detail')) return response(maintenance12);
+    if (init?.method === 'PUT' && url.endsWith('/api/order/order-1')) { puts += 1; return response({ ok: true }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 })).rejects.toThrow(/generic_task_create_not_supported/);
+  expect(puts).toBe(0);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
