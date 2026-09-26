@@ -10,10 +10,13 @@ Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la C
 - Política cache-first en `download`: 24 horas para catálogos de referencia y 15 minutos para órdenes y cotizaciones; `--refresh` fuerza la consulta remota.
 - Comandos `cache refresh`, `cache status`, `cache search` y `cache resolve`, más `--created-by-name` para resolver el generador desde un catálogo de usuarios vigente.
 - Archivo SQLite de todas las respuestas JSON GET, con `cache search reads` y `cache read` para localizar consultas de detalle y otras lecturas directas.
+- `order apply-review` con revisión y contrato `1.2`: acciones `ensureEquipmentMaintenance` y `addTaskGeneral`, snapshot aprobado `order.approved`, referencias `operationId` hacia atrás y reconciliación por relectura ante respuestas ambiguas. Una cadena `ensureEquipmentMaintenance → addTaskGeneral → addActivity → addImage` se aprueba y ejecuta en una sola revisión.
+- `order apply-review` 1.2 admite asociar un `fileId` SIYS existente en `addImage` sin volver a subir el binario.
 
 ### Corregido
 
 - `order create` admite franjas puntuales con `startLocal == endLocal` y consulta su disponibilidad por GET; sigue rechazando rangos invertidos.
+- `order apply-review` 1.1 relee la lista de actividades justo antes del PATCH de `addActivity` y falla por conflicto si cambió desde la baseline aprobada, en lugar de continuar en silencio.
 
 ### Seguridad
 

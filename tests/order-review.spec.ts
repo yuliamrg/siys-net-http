@@ -420,3 +420,362 @@ test('re-reads once after an ambiguous visibility timeout and does not retry the
   expect(writes).toBe(1); expect(result.applied).toHaveLength(1); expect(result.audit.status).toBe('completed');
   await fs.rm(files.directory, { recursive: true, force: true });
 });
+
+const CONTRACT_12 = {
+  schemaVersion: '1.2', enabled: true,
+  operations: {
+    task: { method: 'PATCH', path: '/maintenance/{maintenanceId}/task/{taskId}', fields: { name: { path: 'name' } } },
+  },
+  actions: {
+    addActivity: {
+      create: { method: 'PATCH', path: '/maintenance/{maintenanceId}/task/{taskId}/add-activity' },
+      name: { method: 'PUT', path: '/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=nameCorrected', bodyPath: 'reply', verifyPath: 'nameCorrected.reply' },
+      reply: { method: 'PUT', path: '/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=replyCorrected', bodyPath: 'reply', verifyPath: 'replyCorrected.reply' },
+    },
+    addImage: {
+      upload: { method: 'POST', path: '/file', folder: 'maintenance-files', miniatura: '1' },
+      attach: { method: 'PATCH', path: '/maintenance/{maintenanceId}/task/{taskIndex}/activity/{activityIndex}/add-file/{fileId}' },
+    },
+    addTaskGeneral: { create: { method: 'POST', path: '/maintenance/{maintenanceId}/add-task-general', response: 'text' } },
+    ensureEquipmentMaintenance: {
+      linkEquipment: { method: 'PUT', path: '/order/{orderId}' },
+      createMaintenance: { method: 'POST', path: '/maintenance/empty' },
+    },
+  },
+};
+
+async function writeFiles(draft: unknown, contract: unknown): Promise<{ directory: string; draftPath: string; contractPath: string }> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-order-12-'));
+  const draftPath = path.join(directory, 'review.json'); const contractPath = path.join(directory, 'contract.json');
+  await fs.writeFile(draftPath, JSON.stringify(draft), 'utf8'); await fs.writeFile(contractPath, JSON.stringify(contract), 'utf8');
+  return { directory, draftPath, contractPath };
+}
+
+function textResponse(body: string, status = 200): Response { return new Response(body, { status, headers: { 'content-type': 'text/plain' } }); }
+function orderResponse(order: unknown): Response { return response({ doc: order }); }
+function link(maintenanceId: string, equipmentId: string): Record<string, unknown> {
+  return { _id: `link-${maintenanceId}-${equipmentId}`, maintenance: { _id: maintenanceId }, equipment: { _id: equipmentId } };
+}
+function baseOrder(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { _id: 'order-1', code: '007644', material: 'M', equipments: [], maintenances: [], ...overrides };
+}
+const ENSURE_OP = {
+  operationId: 'op-ensure', action: 'ensureEquipmentMaintenance', equipmentId: 'eq-1',
+  maintenance: { user: 'user-1', equipmentState: 2, start: '2026-01-01T08:00:00', end: '2026-01-01T09:00:00' },
+};
+function ensureDraft(order: Record<string, unknown>, operations: unknown[]): Record<string, unknown> {
+  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ maintenanceId: 'source-m', original: {}, proposed: {}, operations }] };
+}
+function task12Draft(order: Record<string, unknown>, operations: unknown[]): Record<string, unknown> {
+  return { schemaVersion: '1.2', status: 'approved', order, reviews: [{ maintenanceId: 'm-1', original: {}, proposed: {}, operations }] };
+}
+
+test('schema 1.0 remains valid and unchanged', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await fixtureFiles('draft'); global.fetch = async () => response(maintenance());
+  const result = await applyReview(files.draft, { contractPath: files.contract, autoLogin: false });
+  expect(result.planned).toHaveLength(4); expect(result.plannedWrites).toBe(4);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('schema 1.1 remains valid', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const files = await actionFixture({ operationId: 'keep-11', action: 'addActivity', taskId: 'task-1', original: { activityIds: ['other-activity', 'activity-1'] }, proposed: { name: 'N', reply: 'D' } }, 'draft');
+  global.fetch = async () => response(actionState());
+  const result = await applyReview(files.draft, { contractPath: files.contract, autoLogin: false });
+  expect(result.planned).toHaveLength(1); expect(result.plannedWrites).toBe(3);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('schema 1.1 contract rejects the 1.2 actions', async () => {
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]), {
+    schemaVersion: '1.1', enabled: true, operations: {},
+    actions: { ensureEquipmentMaintenance: { linkEquipment: { method: 'PUT', path: '/order/{orderId}' }, createMaintenance: { method: 'POST', path: '/maintenance/empty' } } },
+  });
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/schemaVersion "1\.2"/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('a 1.1 draft rejects the 1.2 actions instead of reinterpreting them', async () => {
+  const draft = ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]); draft.schemaVersion = '1.1';
+  const files = await writeFiles(draft, CONTRACT_12);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/schemaVersion "1\.2"/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('rejects a forward reference before any write', async () => {
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceRef: 'op-ensure' },
+    ENSURE_OP,
+  ]), CONTRACT_12);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/no aparece antes/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('rejects declaring an id and a ref for the same entity', async () => {
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    ENSURE_OP,
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1', maintenanceRef: 'op-ensure' },
+  ]), CONTRACT_12);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/no puede declarar/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('rejects a ref whose produced type does not match', async () => {
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [
+    ENSURE_OP,
+    { operationId: 'op-task', action: 'addTaskGeneral', taskRef: 'op-ensure' },
+  ]), CONTRACT_12);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false })).rejects.toThrow(/produce maintenance/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('exige order.orderId para ensureEquipmentMaintenance', async () => {
+  const files = await writeFiles(ensureDraft({ code: '007644' }, [ENSURE_OP]), CONTRACT_12);
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false })).rejects.toThrow(/orderId/);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla A: equipo ya con mantenimiento produce cero escrituras', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: ['eq-1'], maintenances: [link('m-1', 'eq-1')] });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]), CONTRACT_12);
+  const calls: string[] = [];
+  global.fetch = async (input, init) => { calls.push(String(init?.method)); return orderResponse(order); };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false });
+  expect(result.plannedWrites).toBe(0); expect(result.alreadyApplied).toHaveLength(1); expect(result.planned).toHaveLength(0);
+  expect(calls.every((method) => method === 'GET')).toBe(true);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla B: equipo en la orden sin mantenimiento solo hace POST', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: ['eq-1'], maintenances: [] });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]), CONTRACT_12);
+  const writes: Array<{ method?: string; url: string; body?: string }> = [];
+  global.fetch = async (input, init) => {
+    const url = String(input); if (init?.method === 'GET') return orderResponse(order);
+    writes.push({ method: init?.method, url, body: init?.body as string });
+    if (url.endsWith('/api/maintenance/empty')) { order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(1); expect(writes).toHaveLength(1); expect(writes[0].method).toBe('POST');
+  expect(JSON.parse(writes[0].body!)).toEqual({ equipment: 'eq-1', order: 'order-1', preview: false, user: 'user-1', equipmentState: 2, start: '2026-01-01T08:00:00', end: '2026-01-01T09:00:00' });
+  expect(result.steps.map((step) => `${step.step}:${step.status}`)).toEqual(['createMaintenance:completed', 'ensure:completed']);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla C: equipo faltante hace PUT de la orden y POST del mantenimiento', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: [], maintenances: [], material: 'M' });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [ENSURE_OP]), CONTRACT_12);
+  const methods: string[] = [];
+  global.fetch = async (input, init) => {
+    const url = String(input); if (init?.method === 'GET') return orderResponse(order);
+    methods.push(String(init?.method));
+    if (url.endsWith('/api/order/order-1')) { order.equipments = JSON.parse(String(init?.body)).equipments; return response({ ok: true }); }
+    if (url.endsWith('/api/maintenance/empty')) { order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(2); expect(methods).toEqual(['PUT', 'POST']); expect(order.equipments).toEqual(['eq-1']);
+  expect(result.applied).toHaveLength(1);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: un cambio concurrente en campo protegido evita el PUT', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: [], maintenances: [], material: 'Cambiado por otro' });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [ENSURE_OP]), CONTRACT_12);
+  const calls: string[] = [];
+  global.fetch = async (input, init) => { calls.push(String(init?.method)); return orderResponse(order); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false })).rejects.toThrow(/campo protegido material/);
+  expect(calls.every((method) => method === 'GET')).toBe(true);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: un 500 al crear mantenimiento se reconcilia por relectura sin reintentar', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: ['eq-1'], maintenances: [] });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]), CONTRACT_12);
+  let posts = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return orderResponse(order);
+    posts += 1; order.maintenances = [link('m-2', 'eq-1')]; return response({ message: 'boom' }, 500);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(posts).toBe(1); expect(result.audit.status).toBe('completed'); expect(result.applied).toHaveLength(1);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: un 500 sin persistencia no reintenta y queda ambiguo', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: ['eq-1'], maintenances: [] });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1' }, [ENSURE_OP]), CONTRACT_12);
+  let posts = 0;
+  global.fetch = async (input, init) => { if (init?.method === 'GET') return orderResponse(order); posts += 1; return response({ message: 'boom' }, 500); };
+  let error: any;
+  try { await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 }); }
+  catch (caught) { error = caught; }
+  expect(posts).toBe(1); expect(error.applyResult.audit.status).toBe('ambiguous');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: add-task-general acepta texto ok y verifica la tarea', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const maintenance12: any = { _id: 'm-1', tasks: [] };
+  const files = await writeFiles(task12Draft({ code: '007644' }, [{ operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' }]), CONTRACT_12);
+  let posts = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return response(maintenance12);
+    posts += 1; maintenance12.tasks.push({ _id: 'task-new', name: 'General', activitys: [] }); return textResponse('ok');
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(posts).toBe(1); expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(1);
+  expect(result.steps.map((step) => `${step.step}:${step.status}`)).toEqual(['create:completed', 'task:completed']);
+  expect(result.steps.find((step) => step.step === 'task')?.taskId).toBe('task-new');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: timeout de add-task-general se reconcilia por relectura', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const maintenance12: any = { _id: 'm-1', tasks: [] };
+  const files = await writeFiles(task12Draft({ code: '007644' }, [{ operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' }]), CONTRACT_12);
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') return response(maintenance12);
+    maintenance12.tasks.push({ _id: 'task-new', name: 'General', activitys: [] });
+    throw new Error('Tiempo de espera al escribir POST /maintenance/m-1/add-task-general. No se reintentó: verifica la orden antes de continuar.');
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.applied).toHaveLength(1); expect(result.audit.status).toBe('completed');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: tareas existentes sin coincidencia bloquean add-task-general', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const maintenance12: any = { _id: 'm-1', tasks: [{ _id: 't1', name: 'Otra tarea', activitys: [] }] };
+  const files = await writeFiles(task12Draft({ code: '007644' }, [{ operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' }]), CONTRACT_12);
+  let posts = 0;
+  global.fetch = async (input, init) => { if (init?.method === 'GET') return response(maintenance12); posts += 1; return textResponse('ok'); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false })).rejects.toThrow(/generic_task_create_not_supported/);
+  expect(posts).toBe(0);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: una tarea equivalente ya aplicada no escribe', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const maintenance12: any = { _id: 'm-1', tasks: [{ _id: 't1', name: 'General', activitys: [] }] };
+  const files = await writeFiles(task12Draft({ code: '007644' }, [{ operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' }]), CONTRACT_12);
+  global.fetch = async () => response(maintenance12);
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(0); expect(result.applied).toHaveLength(0); expect(result.alreadyApplied).toHaveLength(1);
+  expect(result.steps.find((step) => step.step === 'task')?.taskId).toBe('t1');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: una carrera externa antes del PATCH de addActivity no escribe', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const maintenance12: any = { _id: 'm-1', tasks: [{ _id: 'task-1', activitys: [{ _id: 'a1', name: '', reply: '', file: [], hiddenFile: [] }] }] };
+  const files = await writeFiles(task12Draft({ code: '007644' }, [{ operationId: 'op-activity', action: 'addActivity', maintenanceId: 'm-1', taskId: 'task-1', original: { activityIds: ['a1'] }, proposed: { name: 'Nueva', reply: 'Descripción' } }]), CONTRACT_12);
+  let gets = 0; let patches = 0;
+  global.fetch = async (input, init) => {
+    if (init?.method === 'GET') { gets += 1; if (gets === 2) maintenance12.tasks[0].activitys.push({ _id: 'external', name: 'De otro usuario', reply: 'Cambio externo' }); return response(maintenance12); }
+    patches += 1; return response({ _id: 'a-new' });
+  };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 })).rejects.toThrow(/Conflicto/);
+  expect(patches).toBe(0);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: cadena ensure→task→activity→image con refs', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'siys-chain-')); const image = path.join(directory, 'evidence.jpg');
+  await fs.writeFile(image, Buffer.from([0xff, 0xd8, 0xff, 0xd9])); const sha256 = crypto.createHash('sha256').update(await fs.readFile(image)).digest('hex');
+  const order: any = baseOrder({ equipments: ['eq-0'], maintenances: [], material: 'M' });
+  const maintenance12: any = { _id: 'm-2', tasks: [] };
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [
+    ENSURE_OP,
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceRef: 'op-ensure' },
+    { operationId: 'op-activity', action: 'addActivity', maintenanceRef: 'op-ensure', taskRef: 'op-task', original: { activityIds: [] }, proposed: { name: 'Nueva', reply: 'Descripción' } },
+    { operationId: 'op-image', action: 'addImage', maintenanceRef: 'op-ensure', taskRef: 'op-task', activityRef: 'op-activity', original: { fileIds: [] }, source: { path: image, sha256 } },
+  ]), CONTRACT_12);
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET' && url.includes('/api/order/order-1/detail')) return orderResponse(order);
+    if (init?.method === 'GET' && url.includes('/api/maintenance/m-2/detail')) return response(maintenance12);
+    if (init?.method === 'PUT' && url.endsWith('/api/order/order-1')) { order.equipments = JSON.parse(String(init?.body)).equipments; return response({ ok: true }); }
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/empty')) { order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/m-2/add-task-general')) { maintenance12.tasks.push({ _id: 't-2', name: 'General', activitys: [] }); return textResponse('ok'); }
+    if (init?.method === 'PATCH' && url.endsWith('/add-activity')) { maintenance12.tasks[0].activitys.push({ _id: 'a-2', name: '', reply: '', file: [], hiddenFile: [] }); return response({ _id: 'a-2' }); }
+    const activity = maintenance12.tasks[0]?.activitys?.[0];
+    if (init?.method === 'PUT' && url.includes('field=nameCorrected')) { activity.nameCorrected = { reply: JSON.parse(String(init.body)).reply }; return response({}); }
+    if (init?.method === 'PUT' && url.includes('field=replyCorrected')) { activity.replyCorrected = { reply: JSON.parse(String(init.body)).reply }; return response({}); }
+    if (init?.method === 'POST' && url.endsWith('/api/file')) return response({ _id: 'file-2' });
+    if (init?.method === 'PATCH' && url.includes('/add-file/file-2')) { activity.file.push({ _id: 'file-2' }); return response({}); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(result.plannedWrites).toBe(8); expect(result.applied).toHaveLength(4); expect(result.audit.status).toBe('completed');
+  expect(maintenance12.tasks[0].name).toBe('General');
+  expect(maintenance12.tasks[0].activitys[0]).toMatchObject({ nameCorrected: { reply: 'Nueva' }, replyCorrected: { reply: 'Descripción' } });
+  expect(maintenance12.tasks[0].activitys[0].file).toEqual([{ _id: 'file-2' }]);
+  await fs.rm(files.directory, { recursive: true, force: true }); await fs.rm(directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: reanudar conserva los IDs producidos por ensure', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order: any = baseOrder({ equipments: ['eq-0'], maintenances: [], material: 'M' });
+  const maintenance12: any = { _id: 'm-2', tasks: [] };
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [
+    ENSURE_OP,
+    { operationId: 'op-task', action: 'addTaskGeneral', maintenanceRef: 'op-ensure' },
+  ]), CONTRACT_12);
+  let posts = 0;
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET' && url.includes('/api/order/order-1/detail')) return orderResponse(order);
+    if (init?.method === 'GET' && url.includes('/api/maintenance/m-2/detail')) return response(maintenance12);
+    if (init?.method === 'PUT' && url.endsWith('/api/order/order-1')) { order.equipments = JSON.parse(String(init?.body)).equipments; return response({ ok: true }); }
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/empty')) { posts += 1; order.maintenances = [link('m-2', 'eq-1')]; return response({ _id: 'm-2' }); }
+    if (init?.method === 'POST' && url.endsWith('/api/maintenance/m-2/add-task-general')) { maintenance12.tasks.push({ _id: 't-2', name: 'General', activitys: [] }); return textResponse('ok'); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  let error: any; let interrupted = false;
+  try {
+    await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0, onProgress: async (partial) => {
+      if (!interrupted && partial.steps.some((step) => step.operationId === 'op-ensure' && step.step === 'ensure')) { interrupted = true; throw new Error('corte simulado'); }
+    } });
+  } catch (caught) { error = caught; }
+  const audit = path.join(files.directory, 'partial.json'); await fs.writeFile(audit, JSON.stringify(error.applyResult), 'utf8');
+  const resumed = await applyReview(files.draftPath, { contractPath: files.contractPath, resumeAuditPath: audit, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(posts).toBe(1); expect(resumed.applied).toHaveLength(1); expect(maintenance12.tasks[0]._id).toBe('t-2');
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
+test('plantilla 1.2: plannedWrites refleja cada estado simulado', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const scenarios: Array<{ order: any; approved?: any; expected: number }> = [
+    { order: baseOrder({ equipments: ['eq-1'], maintenances: [link('m-1', 'eq-1')] }), expected: 0 },
+    { order: baseOrder({ equipments: ['eq-1'], maintenances: [] }), expected: 1 },
+    { order: baseOrder({ equipments: [], maintenances: [], material: 'M' }), approved: { material: 'M' }, expected: 2 },
+  ];
+  for (const scenario of scenarios) {
+    const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', ...(scenario.approved ? { approved: scenario.approved } : {}) }, [ENSURE_OP]), CONTRACT_12);
+    global.fetch = async () => orderResponse(scenario.order);
+    const result = await applyReview(files.draftPath, { contractPath: files.contractPath, autoLogin: false });
+    expect(result.plannedWrites).toBe(scenario.expected);
+    await fs.rm(files.directory, { recursive: true, force: true });
+  }
+});
+
+test('plantilla D: un equipo duplicado bloquea sin escribir', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const order = baseOrder({ equipments: ['eq-1', 'eq-1'], maintenances: [] });
+  const files = await writeFiles(ensureDraft({ code: '007644', orderId: 'order-1', approved: { material: 'M' } }, [ENSURE_OP]), CONTRACT_12);
+  const calls: string[] = [];
+  global.fetch = async (input, init) => { calls.push(String(init?.method)); return orderResponse(order); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false })).rejects.toThrow(/Bloqueado/);
+  expect(calls.every((method) => method === 'GET')).toBe(true);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});

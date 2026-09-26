@@ -1,6 +1,6 @@
 # Aplicación segura de revisiones de orden
 
-`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. No borra actividades o imágenes, no mueve evidencia y no modifica fechas, usuarios o entrega.
+`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`) y crear la tarea General (`addTaskGeneral`), encadenando esas operaciones mediante referencias `operationId`. No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
 
 Antes de habilitar una ruta de escritura, capturar una edición equivalente en SIYS y validar manualmente el método, URL y cuerpo. Guardar el resultado en una ruta privada; la CLI no trae un contrato activo ni adivina endpoints.
 
@@ -121,7 +121,90 @@ Cada entrada de `reviews[].operations[]` requiere un `operationId` único. Forma
 
 Usar una ruta absoluta para la imagen y calcular su SHA-256 después de descargarla o seleccionarla. Se admiten `.jpg`, `.jpeg`, `.png` y `.gif`. `addActivity` representa tres escrituras; `addImage`, dos; cada cambio de visibilidad, una. El límite `--max-changes` cuenta escrituras HTTP, no entradas de operación.
 
-No referenciar en el mismo JSON una actividad o un archivo que aún no existe. Aplicar la creación, volver a inspeccionar la orden y preparar una nueva revisión con los IDs confirmados. Para las rutas fotográficas, la CLI vuelve a resolver `taskIndex` y `activityIndex` inmediatamente antes de asociar o cambiar visibilidad; el JSON siempre expresa el estado deseado y nunca ordena “alternar” directamente.
+En una revisión `1.0`/`1.1` no se puede referenciar en el mismo JSON una actividad o un archivo que aún no existe. Aplicar la creación, volver a inspeccionar la orden y preparar una nueva revisión con los IDs confirmados. La revisión `1.2` habilita referencias hacia atrás (ver abajo). Para las rutas fotográficas, la CLI vuelve a resolver `taskIndex` y `activityIndex` inmediatamente antes de asociar o cambiar visibilidad; el JSON siempre expresa el estado deseado y nunca ordena “alternar” directamente.
+
+## Contrato 1.2 para completar estructuras
+
+El contrato `1.2` conserva el contrato `1.1` y añade dos acciones y referencias `operationId`. Un borrador `1.2` exige un contrato `1.2`; un borrador `1.0`/`1.1` nunca se reinterpreta como `1.2`.
+
+```json
+{
+  "schemaVersion": "1.2",
+  "enabled": true,
+  "operations": {},
+  "actions": {
+    "addTaskGeneral": {
+      "create": { "method": "POST", "path": "/maintenance/{maintenanceId}/add-task-general", "response": "text" }
+    },
+    "ensureEquipmentMaintenance": {
+      "linkEquipment": { "method": "PUT", "path": "/order/{orderId}" },
+      "createMaintenance": { "method": "POST", "path": "/maintenance/empty" }
+    }
+  }
+}
+```
+
+Cada endpoint declara, dentro de una lista cerrada por paso, la modalidad de respuesta permitida: `json`, `text` o `empty`. `add-task-general` está acreditado con texto plano `ok`; no se debe convertir un texto no JSON en fallo final. Ningún endpoint acepta cualquier modalidad: si el contrato no la autoriza para ese paso, la CLI rechaza la operación.
+
+### ensureEquipmentMaintenance
+
+Garantiza que un equipo aprobado pertenece a la orden y tiene exactamente un mantenimiento. No resuelve nombres: el coordinador entrega `equipmentId` y los datos de mantenimiento (`user`, `equipmentState`, `start`, `end`, `observations?`). Consume 0, 1 o 2 escrituras:
+
+- equipo ya en la orden con exactamente un mantenimiento → 0 escrituras, `alreadyApplied`, produce `maintenanceId`;
+- equipo ya en la orden sin mantenimiento → solo `POST /maintenance/empty`;
+- equipo ausente de la orden → `PUT /order/{orderId}` con la lista viva de equipos más el ID aprobado y luego `POST /maintenance/empty`;
+- equipo duplicado o con más de un mantenimiento → `AMBIGUOUS`: se bloquea sin escribir.
+
+El `PUT` nunca se construye desde un snapshot antiguo: se relee la orden viva, se comparan los campos protegidos de `order.approved` (`customer`, `subsidiary`, `type`, `material`, `observations`, `users`, `dates`, `equipments`) y ante una divergencia externa se produce `CONFLICT` sin escribir. `order.orderId` es obligatorio; no se selecciona una orden solo por `code`.
+
+Tras `POST /maintenance/empty` la relectura de la orden decide: exactamente un mantenimiento para el equipo → `completed` (aun con HTTP 500); cero con error inequívoco → `failed`; cualquier duda o más de uno → `ambiguous`. Nunca se repite el POST.
+
+### addTaskGeneral
+
+`POST /maintenance/{maintenanceId}/add-task-general` sin cuerpo. Antes del POST se relee el mantenimiento:
+
+- existe una tarea equivalente única → `alreadyApplied`, produce `taskId`;
+- `tasks.length == 0` → se crea y, si se pidió un nombre distinto de `General`, se renombra con la edición existente `task.name`;
+- existen tareas y ninguna coincide → `BLOCK: generic_task_create_not_supported`; no se renombra una tarea ajena ni se inventa un segundo endpoint.
+
+La comparación de nombres es determinística y normalizada (sin acentos, minúsculas, espacios y separadores colapsados), nunca difusa.
+
+### Referencias backward-only
+
+`maintenanceRef`, `taskRef` y `activityRef` apuntan al `operationId` de una operación que aparece antes en el archivo. Para una misma entidad se declara `id` XOR `ref`, nunca ambos. Cada referencia debe apuntar al tipo que la operación referenciada produce (`ensureEquipmentMaintenance` → `maintenanceId`, `addTaskGeneral` → `taskId`, `addActivity` → `activityId`); las referencias futuras, cruzadas o a tipos incompatibles se rechazan antes de toda lectura remota. Las operaciones de una revisión `1.2` declaran `maintenanceId` o `maintenanceRef` explícito.
+
+Ejemplo de una sola revisión aprobada que completa la estructura de un equipo:
+
+```json
+{
+  "schemaVersion": "1.2",
+  "status": "approved",
+  "order": { "code": "007644", "orderId": "ID_INTERNO_ORDEN", "approved": { "material": "Mantenimiento preventivo" } },
+  "reviews": [{
+    "maintenanceId": "MANTENIMIENTO_FUENTE",
+    "original": {},
+    "proposed": {},
+    "operations": [
+      { "operationId": "equipo-2-mtto", "action": "ensureEquipmentMaintenance", "equipmentId": "ID_EQUIPO_2", "maintenance": { "user": "ID_TECNICO", "equipmentState": 2, "start": "2026-08-03T08:00:00", "end": "2026-08-03T09:00:00" } },
+      { "operationId": "equipo-2-tarea", "action": "addTaskGeneral", "maintenanceRef": "equipo-2-mtto" },
+      { "operationId": "equipo-2-actividad", "action": "addActivity", "maintenanceRef": "equipo-2-mtto", "taskRef": "equipo-2-tarea", "original": { "activityIds": [] }, "proposed": { "name": "Mantenimiento general", "reply": "Descripción aprobada" } },
+      { "operationId": "equipo-2-foto-1", "action": "addImage", "maintenanceRef": "equipo-2-mtto", "taskRef": "equipo-2-tarea", "activityRef": "equipo-2-actividad", "original": { "fileIds": [] }, "source": { "path": "C:\\ruta\\absoluta\\evidencia.jpg", "sha256": "HASH_SHA256_64_HEX" } }
+    ]
+  }]
+}
+```
+
+`addImage` admite además asociar un `fileId` SIYS existente sin volver a subir el binario: si la operación declara `fileId` y no `source`, solo se ejecuta el `attach` (una escritura). Una revisión se aprueba una vez; no hay confirmaciones por subpaso.
+
+### Writer count y reconciliación
+
+`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1. `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
+
+Después de un timeout, un HTTP 5xx, una respuesta no JSON o inesperada, la CLI relee el estado específico y decide `completed`, `alreadyApplied`, `failed` o `ambiguous`. Nunca reintenta una mutación incierta. Una respuesta ambigua detiene la reanudación automática: solo se reutilizan IDs `completed`, `alreadyApplied` o confirmados por lectura viva.
+
+### Carrera de addActivity
+
+Justo antes del `PATCH`, se relee la tarea y se compara la lista actual contra la baseline aprobada más las actividades creadas o reutilizadas por el mismo lote. Si coincide, la operación es `EXPECTED`; si la actividad deseada ya existe inequívocamente, `ALREADY_APPLIED`; si apareció un cambio externo, `CONFLICT` sin enviar el PATCH; si no puede atribuirse, `AMBIGUOUS`. Nunca se continúa en silencio tras una relectura.
 
 Contrato confirmado en la prueba de 006668 para el nombre corregido de una actividad:
 
