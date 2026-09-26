@@ -20,6 +20,20 @@ export function redact(value: unknown): unknown {
   );
 }
 
+export function redactUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    for (const key of url.searchParams.keys()) {
+      if (sensitiveKeys.test(key) || /^(?:sig|x-(?:amz|goog)-(?:signature|credential))$/i.test(key)) {
+        url.searchParams.set(key, '[REDACTED]');
+      }
+    }
+    return url.toString();
+  } catch {
+    return '[REDACTED_URL]';
+  }
+}
+
 export function parseBody(body: string | null): unknown {
   if (!body) return undefined;
   try {

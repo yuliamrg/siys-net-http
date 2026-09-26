@@ -71,6 +71,7 @@ export async function sendApiJson<T>(
   method: 'PATCH' | 'PUT' | 'POST',
   body?: Record<string, unknown>,
   timeoutMs = 15_000,
+  options: { responseType?: 'json' | 'text' | 'empty' } = {},
 ): Promise<T> {
   const normalizedPath = apiPath.startsWith('/') ? apiPath : `/${apiPath}`;
   const operation = `${method} ${normalizedPath}`;
@@ -86,7 +87,10 @@ export async function sendApiJson<T>(
       timeoutMs,
       operation,
     });
-    return response.text ? parseJsonResponse<T>(response, operation) : {} as T;
+    if (!response.text) return {} as T;
+    if (options.responseType === 'text') return response.text as unknown as T;
+    if (options.responseType === 'empty') return {} as T;
+    return parseJsonResponse<T>(response, operation);
   } catch (error) {
     if (error && typeof error === 'object' && (error as { code?: string }).code === 'timeout') {
       const original = error as Error & { category?: string; code?: string; operation?: string; retryable?: boolean };

@@ -235,7 +235,7 @@ siys order inspect 000462 --order-id 6a3ef87eb02db19c4480f820 --output orden-000
 
 ## Crear una orden manual
 
-`order create` prepara y, solo tras autorización explícita, crea una orden manual nueva. No acepta planes, periodos ni tareas derivadas. Primero consultar la Base Operativa y los catálogos de cliente/sede para resolver IDs; después simular y mostrar el payload.
+`order create` prepara y, solo tras autorización explícita, crea una orden manual nueva. No acepta planes, periodos ni tareas derivadas. La solicitud puede usar IDs o nombres humanos; la CLI consulta los catálogos remotos, resuelve y valida las relaciones, y luego simula y muestra el payload con IDs.
 
 ```powershell
 siys order create solicitud.json --output exports\order-create-simulation.json --json
@@ -246,7 +246,7 @@ La ejecución confirmada exige `status: "approved"`, contrato privado exacto `PO
 
 ## Aplicar una revisión aprobada
 
-`order apply-review` permite aplicar textos ya revisados sin usar Excel. Se limita a editar observaciones/estado del mantenimiento, nombre de tarea y nombre o respuesta de actividades existentes. No crea ni elimina elementos y exige un contrato local de endpoints validado contra la app.
+`order apply-review` permite aplicar textos ya revisados sin usar Excel. Se limita a editar observaciones/estado del mantenimiento, nombre de tarea y nombre o respuesta de actividades existentes. Con revisiones y contrato `1.1`/`1.2` puede añadir actividades e imágenes, cambiar su visibilidad y, desde `1.2`, completar la estructura de un equipo (garantizar su mantenimiento y crear la tarea General), encadenar actividades y fotos y, como última operación del mismo lote, finalizar la orden con `finalizeOrder`. No crea una segunda tarea arbitraria, no cierra actividades y exige un contrato local de endpoints validado contra la app.
 
 ```powershell
 siys order apply-review cambios-aprobados.json --contract private\write-contract.json
@@ -268,6 +268,6 @@ Los estados de orden observados y definidos por la app son Abierta (`1`), En eje
 Para generar el reporte de una orden: **Mantenimiento → Órdenes → Ver (ojo) → Mantenimientos → Imprimir**. SIYS prepara el reporte para la impresión del navegador; elegir “Guardar como PDF” en el cuadro de impresión. Antes de imprimir, comprobar que los mantenimientos que deben aparecer tengan activado “Mostrar en el reporte”.
 ## Operaciones aprobadas sobre actividades e imágenes
 
-`siys order apply-review` acepta revisiones `1.1` para `addActivity`, `addImage`, `setImageVisibility` y `setActivityVisibility`, además de las ediciones de texto `1.0`. Todas requieren contrato privado, simulación, estado `approved`, `--confirm` y verificación posterior. Consultar [order-review-write-contract.md](order-review-write-contract.md) para el esquema completo.
+`siys order apply-review` acepta revisiones `1.1` para `addActivity`, `addImage`, `setImageVisibility` y `setActivityVisibility`, además de las ediciones de texto `1.0`. La revisión `1.2` añade `ensureEquipmentMaintenance`, `addTaskGeneral` y `finalizeOrder`, `order.orderId`, el snapshot aprobado `order.approved` y referencias `maintenanceRef`/`taskRef`/`activityRef` hacia operaciones anteriores, de modo que una cadena `ensureEquipmentMaintenance → addTaskGeneral → addActivity → addImage → finalizeOrder` se aprueba y ejecuta en una sola revisión. `finalizeOrder` usa `PUT /order/{orderId}` con `{"state":3}`, relee antes y después, no degrada una orden ya finalizada o cerrada, no inventa readiness y no reintenta una mutación incierta. Todas requieren contrato privado, simulación, estado `approved`, `--confirm` y verificación posterior. Consultar [order-review-write-contract.md](order-review-write-contract.md) para el esquema completo.
 
-La reanudación de una ejecución parcial usa `--resume-audit <archivo>`. Las actividades o archivos creados no pueden ser referenciados por otra operación del mismo JSON: inspeccionar de nuevo y preparar la siguiente revisión.
+La reanudación de una ejecución parcial usa `--resume-audit <archivo>`. En `1.0`/`1.1` las actividades o archivos creados no pueden ser referenciados por otra operación del mismo JSON; en `1.2` sí, mediante `*Ref` a una operación anterior. La auditoría guarda los IDs producidos por cada subpaso y solo se reutilizan los estados `completed` o `alreadyApplied`, o los confirmados por lectura viva; una operación `ambiguous` no se continúa automáticamente.

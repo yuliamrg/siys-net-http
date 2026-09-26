@@ -8,12 +8,8 @@
     "schemaVersion",
     "status",
     "mode",
-    "customerId",
-    "subsidiaryId",
-    "orderTypeId",
     "material",
     "observations",
-    "equipmentIds",
     "schedule",
     "timeZone"
   ],
@@ -22,11 +18,19 @@
     "status": { "enum": ["draft", "approved"] },
     "mode": { "const": "manual" },
     "customerId": { "type": "string", "minLength": 1 },
+    "customerName": { "type": "string", "minLength": 1 },
     "subsidiaryId": { "type": "string", "minLength": 1 },
+    "subsidiaryName": { "type": "string", "minLength": 1 },
     "orderTypeId": { "type": "string", "minLength": 1 },
+    "orderTypeName": { "type": "string", "minLength": 1 },
     "material": { "type": "string", "minLength": 1 },
     "observations": { "type": "string", "minLength": 1 },
     "equipmentIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "equipmentNames": {
       "type": "array",
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 }
@@ -37,12 +41,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["startLocal", "endLocal", "technicianId"],
+        "required": ["startLocal", "endLocal"],
         "properties": {
           "startLocal": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00$" },
           "endLocal": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00$" },
-          "technicianId": { "type": "string", "minLength": 1 }
-        }
+          "technicianId": { "type": "string", "minLength": 1 },
+          "technicianName": { "type": "string", "minLength": 1 }
+        },
+        "oneOf": [
+          { "required": ["technicianId"], "not": { "required": ["technicianName"] } },
+          { "required": ["technicianName"], "not": { "required": ["technicianId"] } }
+        ]
       }
     },
     "timeZone": { "const": "America/Bogota" },
@@ -50,9 +59,33 @@
   },
   "allOf": [
     {
+      "oneOf": [
+        { "required": ["customerId"], "not": { "required": ["customerName"] } },
+        { "required": ["customerName"], "not": { "required": ["customerId"] } }
+      ]
+    },
+    {
+      "oneOf": [
+        { "required": ["subsidiaryId"], "not": { "required": ["subsidiaryName"] } },
+        { "required": ["subsidiaryName"], "not": { "required": ["subsidiaryId"] } }
+      ]
+    },
+    {
+      "oneOf": [
+        { "required": ["orderTypeId"], "not": { "required": ["orderTypeName"] } },
+        { "required": ["orderTypeName"], "not": { "required": ["orderTypeId"] } }
+      ]
+    },
+    {
+      "oneOf": [
+        { "required": ["equipmentIds"], "not": { "required": ["equipmentNames"] } },
+        { "required": ["equipmentNames"], "not": { "required": ["equipmentIds"] } }
+      ]
+    },
+    {
       "if": { "properties": { "allowNoEquipment": { "const": true } }, "required": ["allowNoEquipment"] },
       "then": {},
-      "else": { "properties": { "equipmentIds": { "minItems": 1 } } }
+      "else": { "properties": { "equipmentIds": { "minItems": 1 }, "equipmentNames": { "minItems": 1 } } }
     }
   ]
 }
