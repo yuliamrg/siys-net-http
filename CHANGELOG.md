@@ -11,6 +11,10 @@ Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la C
 - Comandos `cache refresh`, `cache status`, `cache search` y `cache resolve`, más `--created-by-name` para resolver el generador desde un catálogo de usuarios vigente.
 - Archivo SQLite de todas las respuestas JSON GET, con `cache search reads` y `cache read` para localizar consultas de detalle y otras lecturas directas.
 
+### Corregido
+
+- `order create` admite franjas puntuales con `startLocal == endLocal` y consulta su disponibilidad por GET; sigue rechazando rangos invertidos.
+
 ### Seguridad
 
 - Los registros descargados se sanean antes de exportarlos o guardarlos en SQLite; la caché mantiene datos personales y comerciales, pero redacta contraseñas y credenciales.

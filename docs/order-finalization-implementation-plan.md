@@ -20,7 +20,7 @@ Los snapshots completos y las auditorías con datos de producción permanecen en
 - Lectura remota previa: `state = 2` (En ejecución).
 - Escritura observada: `PUT /api/order/{orderId}` con cuerpo `{"state":3}`.
 - Resultado: HTTP 200; una lectura remota posterior devolvió `state = 3` (Finalizada) y `close = false`.
-- La orden tenía actividad(es) que todavía figuraban incompletas. La coordinadora autorizó expresamente finalizarla para corregir su contenido después.
+- La orden tenía actividad(es) que todavía figuraban incompletas. La coordinadora autorizó expresamente finalizarla para corregir su contenido después. Esta transición se volvió a confirmar en la orden 007418 (ver abajo): `state = 3` no implica `close = true` ni `state = 6`.
 
 ### Orden 007644
 
@@ -38,11 +38,22 @@ Operaciones y resultados:
 
 Estado verificado al terminar el ensayo: 001361 está Finalizada con `close = false`; 007644 sigue En ejecución con `close = false`. Ambos chillers de 007644 conservan `equipmentState = 2`; no se marcó como funcionando un equipo cuya observación refleja una novedad pendiente. El Chiller 2 tiene una actividad `complete = true` y las ocho fotos; la actividad fuente del Chiller 1 continúa `complete = false`.
 
+### Orden 007418
+
+Evidencia posterior que amplía la de 001361:
+
+- Segunda transición real confirmada a `state = 3` mediante `PUT /order/{orderId}` con `{"state":3}` y verificación por relectura.
+- `state = 3` no debe inferir `close = true` ni `state = 6`: ambos valores se conservaron tal como estaban antes de la transición.
+- Una actividad con `complete = false` no impidió que el backend aceptara y persistiera el paso a Finalizada. `activity.complete` **no está demostrado** como requisito del backend para finalizar.
+- Por lo anterior, un `activity.complete` desconocido no se convierte en un bloqueo universal: es una señal de readiness para la coordinadora, no una precondición verificada del backend.
+
+Sigue pendiente el contrato para **modificar** una actividad existente (ruta, método, cuerpo y semántica); hasta contar con esa evidencia no se habilita ninguna operación de cierre de actividad.
+
 ## Hallazgos para el diseño
 
-1. El cambio de estado de la orden funciona con `PUT /order/{orderId}` y `{"state":3}`, pero se ha verificado en una sola transición real. La CLI y el modal Editar orden no ofrecen esta operación hoy.
+1. El cambio de estado de la orden funciona con `PUT /order/{orderId}` y `{"state":3}`. Hay dos transiciones reales confirmadas (001361 y 007418). La CLI y el modal Editar orden no ofrecen esta operación hoy.
 2. Las escrituras de SIYS no son atómicas con la respuesta HTTP. Un HTTP 500 puede coexistir con un registro guardado. También hay endpoints que devuelven texto plano, incompatible con asumir siempre JSON.
-3. En **Orden → Mantenimientos**, la interfaz muestra controles de corrección de nombre/descripción, visibilidad y archivos, pero no un control para `activity.complete`. La vista `/my-maintenance` informa que el usuario coordinador actual no tiene permiso para ver esos mantenimientos. Las rutas públicas comunes de OpenAPI/Swagger consultadas responden 404. El PATCH a la ruta base devolvió 404; el PUT con `field=complete` agotó el tiempo y no cambió el registro. No agregar ninguno al contrato hasta obtener el flujo soportado y su semántica.
+3. En **Orden → Mantenimientos**, la interfaz muestra controles de corrección de nombre/descripción, visibilidad y archivos, pero no un control para `activity.complete`. La vista `/my-maintenance` informa que el usuario coordinador actual no tiene permiso para ver esos mantenimientos. Las rutas públicas comunes de OpenAPI/Swagger consultadas responden 404. El PATCH a la ruta base devolvió 404; el PUT con `field=complete` agotó el tiempo y no cambió el registro. No agregar ninguno al contrato hasta obtener el flujo soportado y su semántica. `activity.complete` desconocido es una señal de readiness, no un bloqueo universal demostrado (ver 007418).
 4. La creación de una actividad nueva la inicializa con `complete = true`; esto no demuestra que una actividad anterior pueda cerrarse mediante esa misma operación.
 5. La app ya expone una ruta para adjuntar un `fileId` existente. Reutilizar archivos es preferible cuando el coordinador confirma que la misma evidencia documenta ambos equipos; no duplicar binarios por defecto.
 6. Un equipo en estado 2 no se debe cambiar automáticamente a 1 para permitir finalizar la orden. La CLI debe mostrar la novedad y dejar que el coordinador decida su tratamiento técnico.
@@ -67,7 +78,7 @@ siys order finalize 007644 `
 
 `clone-maintenance` debe producir primero una simulación legible con los campos, actividades y archivos que copiará. La aplicación requiere `--confirm`. La selección de equipos debe resolver a una única pareja dentro de la orden. La operación copia valores literales, conserva `equipmentState`, fechas y observaciones, y permite asociar referencias existentes de fotos. No inventa respuestas técnicas ni cambia el estado de la actividad fuente.
 
-`finalize` debe presentar la preparación y los bloqueos antes de escribir. El caso estándar requiere que todos los equipos pertinentes tengan mantenimiento y que las actividades exigidas estén completas con evidencia suficiente. Como el flujo de cierre de actividades no está confirmado, debe bloquear 007644 por la actividad fuente `complete = false`.
+`finalize` debe presentar la preparación y los bloqueos antes de escribir. El caso estándar requiere que todos los equipos pertinentes tengan mantenimiento y que las actividades exigidas estén completas con evidencia suficiente. Como el flujo de cierre de actividades no está confirmado, la preparación debe señalar la actividad fuente `complete = false` de 007644 como pendiente de readiness y exigir una decisión explícita de la coordinadora; no es un bloqueo universal del backend (ver 007418).
 
 Para casos como 001361, donde la coordinadora autorizó finalizar antes de completar la revisión, ofrecer un override explícito y auditable, por ejemplo:
 

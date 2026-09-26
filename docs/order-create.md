@@ -67,7 +67,7 @@ En cada entidad se requiere su campo `Id` o `Name`; no se permiten ambos a la ve
 - La sede se consulta bajo el cliente resuelto y los equipos se consultan con `subsidiary=<id>&active=1`; los nombres de técnicos solo se buscan entre usuarios con `itIsTechnical: true`.
 - El tipo de orden se consulta en `/order-type`; como no se observó la respuesta real durante esta fase, `orderTypeName` compara los campos explícitos `name` y `description`.
 - Los IDs de equipos no se repiten; un caso sin equipo exige `allowNoEquipment: true`.
-- Los horarios son fechas locales válidas de Bogotá, usan intervalos de 30 minutos, terminan después de iniciar y no se solapan para un mismo técnico.
+- Los horarios son fechas locales válidas de Bogotá y usan intervalos de 30 minutos. Una franja puntual admite `startLocal == endLocal`; un rango invertido y los solapamientos del mismo técnico se rechazan.
 - SIYS informa disponibilidad para cada franja.
 
 ## Resultado
