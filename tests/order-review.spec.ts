@@ -974,9 +974,9 @@ test('startOrder: state 2 queda alreadyApplied sin escribir', async () => {
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('startOrder: state 3, state 6 o close true no degradan y no escriben', async () => {
+test('startOrder: state 3 o state 6 no degradan y no escriben', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  for (const order of [baseOrder({ state: 3, close: false }), baseOrder({ state: 6, close: false }), baseOrder({ state: 1, close: true })]) {
+  for (const order of [baseOrder({ state: 3, close: false }), baseOrder({ state: 6, close: false })]) {
     const files = await writeFiles(startDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
     const methods: string[] = [];
     global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
@@ -1171,9 +1171,9 @@ test('finalizeOrder: rechaza si hay una mutación posterior antes de cualquier H
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('finalizeOrder: state 6 o close true no degradan y no escriben', async () => {
+test('finalizeOrder: state 6 no degrada y no escribe', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  for (const order of [baseOrder({ state: 6, close: false }), baseOrder({ state: 2, close: true })]) {
+  for (const order of [baseOrder({ state: 6, close: false })]) {
     const files = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
     const methods: string[] = [];
     global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
@@ -1182,6 +1182,33 @@ test('finalizeOrder: state 6 o close true no degradan y no escriben', async () =
     expect(methods.every((method) => method === 'GET')).toBe(true);
     await fs.rm(files.directory, { recursive: true, force: true });
   }
+});
+
+test('close=true sin state 6 no se interpreta como cerrada en start/finalize', async () => {
+  process.env.SIYS_TOKEN = 'header.payload.signature';
+  const startFiles = await writeFiles(startDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  const startOrder: any = baseOrder({ state: 1, close: true });
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET') return orderResponse(startOrder);
+    if (url.endsWith('/api/order/order-1')) { startOrder.state = JSON.parse(String(init?.body)).state; return response({ ok: true }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const started = await applyReview(startFiles.draftPath, { contractPath: startFiles.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(started.applied).toHaveLength(1); expect(startOrder.state).toBe(2);
+  await fs.rm(startFiles.directory, { recursive: true, force: true });
+
+  const finalizeFiles = await writeFiles(finalizeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_12);
+  const finalizeOrder: any = baseOrder({ state: 2, close: true });
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET') return orderResponse(finalizeOrder);
+    if (url.endsWith('/api/order/order-1')) { finalizeOrder.state = JSON.parse(String(init?.body)).state; return response({ ok: true }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
+  const finalized = await applyReview(finalizeFiles.draftPath, { contractPath: finalizeFiles.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
+  expect(finalized.applied).toHaveLength(1); expect(finalizeOrder.state).toBe(3);
+  await fs.rm(finalizeFiles.directory, { recursive: true, force: true });
 });
 
 test('finalizeOrder: cambio externo a finalizada no escribe; transición desconocida bloquea', async () => {
@@ -1309,7 +1336,7 @@ test('finalizeOrder: una operación previa fallida no llega a finalizar', async 
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('closeOrder: state 3 confirmado envía un único PUT {"close":true} y verifica', async () => {
+test('closeOrder: state 3 confirmado envía un único PUT {"state":6} y verifica', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const order: any = baseOrder({ state: 3, close: false });
   const files = await writeFiles(closeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_13);
@@ -1318,28 +1345,33 @@ test('closeOrder: state 3 confirmado envía un único PUT {"close":true} y verif
     const url = String(input);
     if (init?.method === 'GET') return orderResponse(order);
     writes.push({ method: init?.method, url, body: init?.body as string });
-    if (url.endsWith('/api/order/order-1')) { order.close = JSON.parse(String(init?.body)).close; return response({ ok: true }); }
+    if (url.endsWith('/api/order/order-1')) { order.state = JSON.parse(String(init?.body)).state; return response({ ok: true }); }
     throw new Error(`Ruta inesperada ${url}`);
   };
   const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
   expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(1); expect(result.audit.status).toBe('completed');
   expect(writes).toHaveLength(1); expect(writes[0].method).toBe('PUT'); expect(writes[0].url).toContain('/api/order/order-1');
-  expect(writes[0].body).toBe('{"close":true}');
-  expect(order.state).toBe(3); expect(order.close).toBe(true);
-  expect(result.steps.at(-1)).toMatchObject({ operationId: 'op-close', step: 'close', status: 'completed', stateBefore: 3, stateAfter: 3, closeBefore: false, closeAfter: true });
+  expect(writes[0].body).toBe('{"state":6}');
+  expect(order.state).toBe(6); expect(order.close).toBe(false);
+  expect(result.steps.at(-1)).toMatchObject({ operationId: 'op-close', step: 'close', status: 'completed', stateBefore: 3, stateAfter: 6, closeBefore: false, closeAfter: false });
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('closeOrder: close true ya está cerrada y no escribe', async () => {
+test('closeOrder: close true con state 3 no está cerrada y escribe state 6', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
-  const order = baseOrder({ state: 3, close: true });
+  const order: any = baseOrder({ state: 3, close: true });
   const files = await writeFiles(closeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_13);
-  const methods: string[] = [];
-  global.fetch = async (input, init) => { methods.push(String(init?.method)); return orderResponse(order); };
+  const writes: string[] = [];
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET') return orderResponse(order);
+    writes.push(String(init?.body));
+    if (url.endsWith('/api/order/order-1')) { order.state = JSON.parse(String(init?.body)).state; return response({ ok: true }); }
+    throw new Error(`Ruta inesperada ${url}`);
+  };
   const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
-  expect(result.plannedWrites).toBe(0); expect(result.applied).toHaveLength(0); expect(result.alreadyApplied).toHaveLength(1);
-  expect(methods.every((method) => method === 'GET')).toBe(true);
-  expect(result.steps.at(-1)).toMatchObject({ operationId: 'op-close', step: 'close', status: 'alreadyApplied', closeBefore: true, closeAfter: true });
+  expect(result.plannedWrites).toBe(1); expect(result.applied).toHaveLength(1);
+  expect(writes).toEqual(['{"state":6}']); expect(order.state).toBe(6);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
@@ -1369,35 +1401,35 @@ test('closeOrder: state 1 o 2 se rechaza con unsupported_order_state_transition 
   }
 });
 
-test('closeOrder: si la relectura previa detecta cierre concurrente no escribe', async () => {
+test('closeOrder: si la relectura previa detecta state 6 no escribe', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const files = await writeFiles(closeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_13);
   let reads = 0; let puts = 0;
   global.fetch = async (_input, init) => {
-    if (init?.method === 'GET') { reads += 1; return orderResponse(baseOrder({ state: 3, close: reads >= 2 })); }
+    if (init?.method === 'GET') { reads += 1; return orderResponse(baseOrder({ state: reads >= 2 ? 6 : 3, close: false })); }
     puts += 1; return response({ ok: true });
   };
   const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
   expect(puts).toBe(0); expect(result.applied).toHaveLength(0); expect(result.alreadyApplied).toHaveLength(1);
-  expect(result.steps.at(-1)).toMatchObject({ step: 'close', status: 'alreadyApplied', closeAfter: true });
+  expect(result.steps.at(-1)).toMatchObject({ step: 'close', status: 'alreadyApplied', stateAfter: 6 });
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('closeOrder: un 500 con close true confirmado reconcilia como completed sin reintentar', async () => {
+test('closeOrder: un 500 con state 6 confirmado reconcilia como completed sin reintentar', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const order: any = baseOrder({ state: 3, close: false });
   const files = await writeFiles(closeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_13);
   let puts = 0;
   global.fetch = async (input, init) => {
     if (init?.method === 'GET') return orderResponse(order);
-    puts += 1; order.close = true; return response({ message: 'boom' }, 500);
+    puts += 1; order.state = 6; return response({ message: 'boom' }, 500);
   };
   const result = await applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false, delayMs: 0 });
   expect(puts).toBe(1); expect(result.audit.status).toBe('completed'); expect(result.applied).toHaveLength(1);
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
-test('closeOrder: una relectura posterior sin close true queda failed sin reintentar', async () => {
+test('closeOrder: una relectura posterior en state 3 queda failed sin reintentar', async () => {
   process.env.SIYS_TOKEN = 'header.payload.signature';
   const order = baseOrder({ state: 3, close: false });
   const files = await writeFiles(closeDraft({ code: '007644', orderId: 'order-1' }), CONTRACT_13);
