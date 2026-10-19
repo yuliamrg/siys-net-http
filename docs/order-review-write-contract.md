@@ -1,6 +1,6 @@
 # Aplicación segura de revisiones de orden
 
-`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`), crear la tarea General (`addTaskGeneral`) y pasar la orden a **Finalizada** (`finalizeOrder`), encadenando esas operaciones mediante referencias `operationId`. No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
+`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`), crear la tarea General (`addTaskGeneral`) y pasar la orden a **Finalizada** (`finalizeOrder`), encadenando esas operaciones mediante referencias `operationId`. Con revisión y contrato `1.3` puede además cerrar administrativamente una orden ya finalizada (`closeOrder`). No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
 
 Antes de habilitar una ruta de escritura, capturar una edición equivalente en SIYS y validar manualmente el método, URL y cuerpo. Guardar el resultado en una ruta privada; la CLI no trae un contrato activo ni adivina endpoints.
 
@@ -227,7 +227,7 @@ Ejemplo de una sola revisión aprobada que completa la estructura de un equipo:
 
 ### Writer count y reconciliación
 
-`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1; `finalizeOrder`, 1 con `state == 2` y 0 si ya está finalizada o posterior. `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
+`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1; `finalizeOrder`, 1 con `state == 2` y 0 si ya está finalizada o posterior; `closeOrder`, 1 con `state == 3` y `close != true`, y 0 si ya está cerrada (`close == true` o `state == 6`). `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
 
 Después de un timeout, un HTTP 5xx, una respuesta no JSON o inesperada, la CLI relee el estado específico y decide `completed`, `alreadyApplied`, `failed` o `ambiguous`. Nunca reintenta una mutación incierta. Una respuesta ambigua detiene la reanudación automática: solo se reutilizan IDs `completed`, `alreadyApplied` o confirmados por lectura viva.
 
@@ -303,6 +303,46 @@ Fragmento que puede agregarse al contrato privado ya validado, junto con las rut
 ```
 
 El estado solo se incluye en un JSON de revisión cuando la observación, actividad y evidencia son coherentes con él. La CLI relee y compara el valor actual antes de escribir.
+
+## Contrato 1.3 para cierre administrativo
+
+El contrato `1.3` conserva el contrato `1.2` y añade `closeOrder`. Un borrador `1.3` exige un contrato `1.3`; un borrador `1.0`, `1.1` o `1.2` nunca se reinterpreta como `1.3`. Un runtime anterior que no conozca `closeOrder` falla cerrado ante la acción desconocida y no escribe.
+
+```json
+{
+  "schemaVersion": "1.3",
+  "enabled": true,
+  "operations": {},
+  "actions": {
+    "closeOrder": {
+      "close": { "method": "PUT", "path": "/order/{orderId}" }
+    }
+  }
+}
+```
+
+Ejemplo de acción:
+
+```json
+{ "operationId": "close", "action": "closeOrder" }
+```
+
+`closeOrder` usa `order.orderId` del borrador y no declara `maintenanceId`, refs, `state` ni `close`. Su único objetivo es el cierre administrativo mediante `PUT /order/{orderId}` con el cuerpo exacto `{"close":true}` sobre una orden ya finalizada. No escribe `state=6`, no toca `checkIn` y no factura.
+
+Antes de escribir se relee la orden viva por `orderId` y se confirma el código. La clasificación es cerrada:
+
+- `state == 3` con `close != true` → cierre permitido, 1 escritura planificada.
+- `close == true` o `state == 6` → `alreadyApplied`, 0 escrituras; ya está cerrada y no se reescribe.
+- `state == 1` o `state == 2` → no hay contrato de cierre: se bloquea con `unsupported_order_state_transition`, sin escribir.
+- cualquier otro estado → `unsupported`, sin escribir.
+
+Justo antes del `PUT` se vuelve a leer la orden: si ya está cerrada (`close == true` o `state == 6`) no se escribe; si sigue en `state == 3` con `close != true` se envía una sola vez; si cambió a un estado sin contrato se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: el éxito exige `close == true` y `state` en `{3, 6}`; `state == 6` se acepta como equivalente funcional de cerrada. Un `close == true` con cualquier otro `state` queda `ambiguous` y no se reintenta. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `close == true` y `state` está en `{3, 6}`, el cierre se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta.
+
+`closeOrder` y `finalizeOrder` no pueden coexistir en el mismo lote: la finalización debe quedar persistida y verificada en un lote anterior, y el cierre exige su propia aprobación. `closeOrder` debe ser además la última mutación efectiva del lote; ninguna escritura puede suceder después del cierre. `closeOrder` exige `order.orderId` inequívoco; no se selecciona una orden solo por `code`.
+
+La CLI no valida readiness y no la convierte en precondición de escritura: no comprueba que las actividades estén completas, que exista evidencia fotográfica por actividad ni que la aceptación o entrega esté registrada. Esas condiciones las exige el orquestador (`siys-order-improver`) y la skill antes de construir el lote de cierre. La CLI solo acredita y verifica lo que el backend informa (`state`, `close`, transición y relectura), y tampoco corrige datos para satisfacerlas.
+
+El paso de auditoría se llama `close` y registra `orderId`, el estado previo, el estado verificado posterior y el resultado `completed`/`alreadyApplied`/`ambiguous`/`failed`.
 
 ## Flujo del coordinador
 

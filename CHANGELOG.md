@@ -2,6 +2,17 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la CLI permanezca en `0.x`, una versión minor puede ajustar contratos visibles; cada ajuste se documentará antes del release.
 
+## [0.5.0] - 2026-10-19
+
+### Añadido
+
+- `order apply-review` con revisión y contrato `1.3`: nueva acción `closeOrder` para el cierre administrativo de una orden ya finalizada, mediante un único `PUT /order/{orderId}` con `{"close":true}`. Solo se permite desde `state=3` con `close != true`; `close=true` o `state=6` se reportan `alreadyApplied` sin escribir; `state=1` o `state=2` se rechazan con `unsupported_order_state_transition`; relee antes y después, exige `close=true` con `state` en `{3,6}` y no reintenta mutaciones ambiguas.
+- `closeOrder` y `finalizeOrder` no comparten lote: la finalización y el cierre exigen lotes y aprobaciones separadas. `closeOrder` debe ser la última mutación efectiva del lote. La CLI no valida readiness (actividades, fotos o aceptación); esa precondición queda en el orquestador y la skill.
+
+### Cambiado
+
+- La CLI reporta `0.5.0`. Las revisiones con `schemaVersion` `1.3` (incluida `closeOrder`) requieren `0.5.0` o posterior; `1.0`, `1.1` y `1.2` conservan su comportamiento y no se reinterpretan. Un runtime anterior falla cerrado ante la acción desconocida.
+
 ## [0.4.0] - 2026-09-26
 
 ### Añadido
@@ -51,5 +62,6 @@ Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la C
 - `brace-expansion` se resolvió a 1.1.18 y 2.1.4; `npm audit --omit=dev` no reporta vulnerabilidades.
 - Se mantiene TLS obligatorio y no se añadieron reintentos para escrituras.
 
+[0.5.0]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.5.0
 [0.4.0]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.4.0
 [0.2.0]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.2.0
