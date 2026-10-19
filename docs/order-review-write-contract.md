@@ -1,6 +1,6 @@
 # Aplicación segura de revisiones de orden
 
-`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`), crear la tarea General (`addTaskGeneral`) y pasar la orden a **Finalizada** (`finalizeOrder`), encadenando esas operaciones mediante referencias `operationId`. Con revisión y contrato `1.3` puede además cerrar administrativamente una orden ya finalizada (`closeOrder`). No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
+`siys order apply-review` edita los campos existentes autorizados y, con revisión y contrato `1.1`, puede añadir actividades, añadir imágenes, cambiar la visibilidad de una imagen y cambiar la visibilidad de una actividad completa. Con revisión y contrato `1.2` también puede completar la estructura de una orden existente: garantizar el mantenimiento de un equipo aprobado (`ensureEquipmentMaintenance`), crear la tarea General (`addTaskGeneral`), pasar la orden a **En ejecución** (`startOrder`) y a **Finalizada** (`finalizeOrder`), encadenando esas operaciones mediante referencias `operationId`. Con revisión y contrato `1.3` puede además cerrar administrativamente una orden ya finalizada (`closeOrder`). No borra actividades o imágenes, no mueve evidencia, no crea una segunda tarea arbitraria, no cierra actividades y no modifica fechas, usuarios o entrega.
 
 Antes de habilitar una ruta de escritura, capturar una edición equivalente en SIYS y validar manualmente el método, URL y cuerpo. Guardar el resultado en una ruta privada; la CLI no trae un contrato activo ni adivina endpoints.
 
@@ -140,6 +140,9 @@ El contrato `1.2` conserva el contrato `1.1` y añade tres acciones y referencia
       "linkEquipment": { "method": "PUT", "path": "/order/{orderId}" },
       "createMaintenance": { "method": "POST", "path": "/maintenance/empty" }
     },
+    "startOrder": {
+      "start": { "method": "PUT", "path": "/order/{orderId}" }
+    },
     "finalizeOrder": {
       "update": { "method": "PUT", "path": "/order/{orderId}" }
     }
@@ -173,6 +176,21 @@ Tras `POST /maintenance/empty` la relectura de la orden decide: exactamente un m
 - existen tareas y ninguna coincide → `BLOCK: generic_task_create_not_supported`; no se renombra una tarea ajena ni se inventa un segundo endpoint.
 
 La comparación de nombres es determinística y normalizada (sin acentos, minúsculas, espacios y separadores colapsados), nunca difusa.
+
+### startOrder
+
+`startOrder` usa `order.orderId` del borrador y no declara `maintenanceId`, refs ni `state`. Su único objetivo es `state = 2` (En ejecución) mediante `PUT /order/{orderId}` con el cuerpo exacto `{"state":2}`; no toca `close` ni ningún otro campo de la orden.
+
+Clasificación cerrada, releída antes de escribir y justo antes del `PUT`:
+
+- `state == 1` → inicio permitido, 1 escritura planificada.
+- `state == 2` → 0 escrituras, `alreadyApplied`.
+- `state == 3`, `state == 6` o `close == true` → 0 escrituras; se respeta el estado posterior y no se degrada.
+- cualquier otro estado → se bloquea solo esa transición con `unsupported_order_state_transition`.
+
+Después del `PUT` se relee la orden: el éxito exige `state == 2` y registra `close` antes/después para comprobar que no cambió en silencio. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `state == 2`, se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta. Un lote admite como máximo un `startOrder`.
+
+Evidencia de acreditación: la ruta y el método son los mismos ya verificados para `finalizeOrder`; la transición específica `1 → 2` se acredita con el piloto controlado de la orden `001404`, que se relee y verifica inmediatamente después de la única escritura.
 
 ### finalizeOrder
 
