@@ -648,7 +648,6 @@ function classifyStart(order: JsonRecord): StartClass {
   const close = order.close === true;
   if (state === 2) return { status: 'alreadyApplied', state, close, reason: 'started' };
   if (state === 3) return { status: 'alreadyApplied', state, close, reason: 'finalized' };
-  if (close) return { status: 'alreadyApplied', state, close, reason: 'closed' };
   if (state === 6) return { status: 'alreadyApplied', state, close, reason: 'closed' };
   if (state === 1) return { status: 'pending', state: 1, close };
   return { status: 'unsupported', state: order.state };
@@ -662,7 +661,6 @@ function classifyFinalize(order: JsonRecord): FinalizeClass {
   const state = stateNumber(order.state);
   const close = order.close === true;
   if (state === 3) return { status: 'alreadyApplied', state, close, reason: 'finalized' };
-  if (close) return { status: 'alreadyApplied', state, close, reason: 'closed' };
   if (state === 6) return { status: 'alreadyApplied', state, close, reason: 'closed' };
   if (state === 2) return { status: 'pending', state: 2, close };
   return { status: 'unsupported', state: order.state };
@@ -671,19 +669,20 @@ function unsupportedTransition(operationId: string, state: unknown): Error {
   return Object.assign(new Error(`Transición no soportada en ${operationId}: unsupported_order_state_transition (state=${String(state ?? '(sin estado)')}).`), { code: 'unsupported_order_state_transition' });
 }
 type CloseClass =
-  | { status: 'alreadyApplied'; state?: number; close: boolean }
-  | { status: 'pending'; state: 3; close: false }
+  | { status: 'alreadyApplied'; state: 6; close: boolean }
+  | { status: 'pending'; state: 3; close: boolean }
   | { status: 'unsupported'; state: unknown };
 /**
- * Solo se acredita el cierre administrativo de una orden ya finalizada:
- * `state = 3` con `close = false` → `PUT /order/{orderId}` con `{"close":true}`.
- * `state = 6` o `close = true` ya están cerradas y se reportan sin reescribir.
+ * El cierre administrativo es `state = 6` (Cerrada). `close = true` por sí solo
+ * NO acredita cierre: una orden puede quedar con la bandera y seguir Finalizada
+ * (`state = 3`), y en ese caso debe cerrarse escribiendo `{"state":6}`.
+ * Solo se cierra desde `state = 3`; `state = 6` se reporta como ya aplicado.
  * `state = 1` o `state = 2` no tienen contrato de cierre.
  */
 function classifyClose(order: JsonRecord): CloseClass {
   const state = stateNumber(order.state);
   const close = order.close === true;
-  if (close || state === 6) return { status: 'alreadyApplied', state, close };
+  if (state === 6) return { status: 'alreadyApplied', state: 6, close };
   if (state === 3) return { status: 'pending', state: 3, close };
   return { status: 'unsupported', state: order.state };
 }
@@ -1073,7 +1072,7 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
           continue;
         }
         let writeError: unknown;
-        try { await sendApiJson(endpointFor(close.path, { orderId }), token, close.method, { close: true }, options.timeoutMs, { responseType: close.response }); }
+        try { await sendApiJson(endpointFor(close.path, { orderId }), token, close.method, { state: 6 }, options.timeoutMs, { responseType: close.response }); }
         catch (error) {
           writeError = error;
           if (!isAmbiguousWrite(error)) {
@@ -1084,16 +1083,10 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
         }
         const after = await loadOrder(orderId);
         const stateAfter = stateNumber(after.state); const closeAfter = after.close === true;
-        if (closeAfter && (stateAfter === 3 || stateAfter === 6)) {
+        if (stateAfter === 6) {
           item.writes = 1; result.applied.push(item);
           await progress({ operationId, action: item.action, step: 'close', status: 'completed', orderId, stateBefore, stateAfter, closeBefore, closeAfter });
           await delay(); continue;
-        }
-        if (closeAfter) {
-          result.audit.status = 'ambiguous';
-          const message = `unexpected_state_after_close: closeOrder dejó close=true con state=${String(after.state ?? '(sin estado)')}; no se reintentará.`;
-          await progress({ operationId, action: item.action, step: 'close', status: 'ambiguous', orderId, stateBefore, stateAfter, closeBefore, closeAfter, error: message });
-          throw new Error(message);
         }
         if (writeError) {
           result.audit.status = 'ambiguous';
@@ -1102,7 +1095,7 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
           throw writeError instanceof Error ? writeError : new Error(message);
         }
         result.audit.status = 'failed';
-        const message = `Verificación fallida para ${operationId}.close: close=${String(after.close)} state=${String(after.state ?? '(sin estado)')}.`;
+        const message = `Verificación fallida para ${operationId}.close: se exige state=6 (Cerrada) y se observó state=${String(after.state ?? '(sin estado)')} con close=${String(after.close)}. close=true no acredita cierre.`;
         await progress({ operationId, action: item.action, step: 'close', status: 'failed', orderId, stateBefore, stateAfter, closeBefore, closeAfter, error: message });
         throw new Error(message);
       }

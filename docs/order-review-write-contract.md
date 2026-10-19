@@ -185,7 +185,7 @@ Clasificación cerrada, releída antes de escribir y justo antes del `PUT`:
 
 - `state == 1` → inicio permitido, 1 escritura planificada.
 - `state == 2` → 0 escrituras, `alreadyApplied`.
-- `state == 3`, `state == 6` o `close == true` → 0 escrituras; se respeta el estado posterior y no se degrada.
+- `state == 3`, `state == 6` → 0 escrituras; se respeta el estado posterior y no se degrada.
 - cualquier otro estado → se bloquea solo esa transición con `unsupported_order_state_transition`.
 
 Después del `PUT` se relee la orden: el éxito exige `state == 2` y registra `close` antes/después para comprobar que no cambió en silencio. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `state == 2`, se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta. Un lote admite como máximo un `startOrder`.
@@ -205,11 +205,11 @@ Ejemplo de acción:
 Antes de escribir se relee la orden viva por `orderId` y se confirma el código. La clasificación es cerrada:
 
 - `state == 3` → `alreadyApplied`, 0 escrituras.
-- `state == 6` o `close == true` → 0 escrituras; se respeta el estado posterior/cerrado y no se degrada. No es un error operativo.
+- `state == 6` → 0 escrituras; se respeta el estado posterior/cerrado y no se degrada. No es un error operativo. Una orden con `close == true` pero `state == 3` no está cerrada: sigue Finalizada y debe cerrarse con `closeOrder`.
 - `state == 2` → finalización permitida, 1 escritura planificada.
 - cualquier otro estado → no hay contrato de transición; se bloquea solo esa transición con `unsupported_order_state_transition`.
 
-Justo antes del `PUT` se vuelve a leer la orden: si sigue en `state == 2` se envía una sola vez; si ya quedó en `state == 3`, `state == 6` o con `close == true`, no se escribe; si cambió a un estado sin contrato, se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: el éxito exige `state == 3` y se registra `close` antes/después para comprobar que no cambió en silencio. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `state == 3`, la finalización se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta.
+Justo antes del `PUT` se vuelve a leer la orden: si sigue en `state == 2` se envía una sola vez; si ya quedó en `state == 3` o `state == 6`, no se escribe; si cambió a un estado sin contrato, se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: el éxito exige `state == 3` y se registra `close` antes/después para comprobar que no cambió en silencio. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `state == 3`, la finalización se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta.
 
 `finalizeOrder` no impone readiness inventado: la CLI no bloquea la finalización porque `activity.complete` sea `false`, un equipo tenga `equipmentState = 2`, un mantenimiento registre novedades o falten fotografías. Esos datos son contexto para la coordinadora, no precondiciones acreditadas del backend, y la CLI tampoco los corrige.
 
@@ -245,7 +245,7 @@ Ejemplo de una sola revisión aprobada que completa la estructura de un equipo:
 
 ### Writer count y reconciliación
 
-`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1; `finalizeOrder`, 1 con `state == 2` y 0 si ya está finalizada o posterior; `closeOrder`, 1 con `state == 3` y `close != true`, y 0 si ya está cerrada (`close == true` o `state == 6`). `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
+`ensureEquipmentMaintenance` cuenta 0, 1 o 2; `addTaskGeneral`, 1 más el renombrado opcional; `addActivity`, 3; `addImage` con archivo nuevo, 2; con `fileId` existente, 1; `finalizeOrder`, 1 con `state == 2` y 0 si ya está finalizada o posterior; `closeOrder`, 1 con `state == 3` y 0 solo si ya está en `state == 6`. `--max-changes` sigue siendo el guardia y `plannedWrites` refleja el estado simulado. Para lotes aprobados mayores a 20, la capa autorizada pasa un `--max-changes` explícito acorde; el valor por defecto no se eleva en silencio.
 
 Después de un timeout, un HTTP 5xx, una respuesta no JSON o inesperada, la CLI relee el estado específico y decide `completed`, `alreadyApplied`, `failed` o `ambiguous`. Nunca reintenta una mutación incierta. Una respuesta ambigua detiene la reanudación automática: solo se reutilizan IDs `completed`, `alreadyApplied` o confirmados por lectura viva.
 
@@ -345,16 +345,16 @@ Ejemplo de acción:
 { "operationId": "close", "action": "closeOrder" }
 ```
 
-`closeOrder` usa `order.orderId` del borrador y no declara `maintenanceId`, refs, `state` ni `close`. Su único objetivo es el cierre administrativo mediante `PUT /order/{orderId}` con el cuerpo exacto `{"close":true}` sobre una orden ya finalizada. No escribe `state=6`, no toca `checkIn` y no factura.
+`closeOrder` usa `order.orderId` del borrador y no declara `maintenanceId`, refs, `state` ni `close`. Su único objetivo es el cierre administrativo mediante `PUT /order/{orderId}` con el cuerpo exacto `{"state":6}` sobre una orden ya finalizada. **Cerrada es `state=6`.** La bandera `close=true` por sí sola no acredita cierre: una orden puede quedar con esa bandera y seguir en `state=3` (Finalizada). No toca `checkIn` y no factura.
 
 Antes de escribir se relee la orden viva por `orderId` y se confirma el código. La clasificación es cerrada:
 
-- `state == 3` con `close != true` → cierre permitido, 1 escritura planificada.
-- `close == true` o `state == 6` → `alreadyApplied`, 0 escrituras; ya está cerrada y no se reescribe.
+- `state == 3` → cierre permitido, 1 escritura planificada (aunque `close` sea `true`, porque un `close=true` con `state=3` no es una orden cerrada).
+- `state == 6` → `alreadyApplied`, 0 escrituras; ya está cerrada y no se reescribe.
 - `state == 1` o `state == 2` → no hay contrato de cierre: se bloquea con `unsupported_order_state_transition`, sin escribir.
 - cualquier otro estado → `unsupported`, sin escribir.
 
-Justo antes del `PUT` se vuelve a leer la orden: si ya está cerrada (`close == true` o `state == 6`) no se escribe; si sigue en `state == 3` con `close != true` se envía una sola vez; si cambió a un estado sin contrato se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: el éxito exige `close == true` y `state` en `{3, 6}`; `state == 6` se acepta como equivalente funcional de cerrada. Un `close == true` con cualquier otro `state` queda `ambiguous` y no se reintenta. Tras un timeout, un 5xx o una respuesta no interpretable se relee: si `close == true` y `state` está en `{3, 6}`, el cierre se reconcilia como `completed`; si no, queda `ambiguous` o `failed` según la evidencia. La mutación no se reintenta.
+Justo antes del `PUT` se vuelve a leer la orden: si ya está en `state == 6` no se escribe; si sigue en `state == 3` se envía una sola vez; si cambió a un estado sin contrato se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: **el éxito exige `state == 6`**; `close` se registra antes y después solo como dato observado. Un resultado con `state == 3` o cualquier otro estado queda `failed` y no se reintenta; tras un timeout, un 5xx o una respuesta no interpretable se relee y solo se reconcilia como `completed` si `state == 6`. La mutación no se reintenta.
 
 `closeOrder` y `finalizeOrder` no pueden coexistir en el mismo lote: la finalización debe quedar persistida y verificada en un lote anterior, y el cierre exige su propia aprobación. `closeOrder` debe ser además la última mutación efectiva del lote; ninguna escritura puede suceder después del cierre. `closeOrder` exige `order.orderId` inequívoco; no se selecciona una orden solo por `code`.
 
