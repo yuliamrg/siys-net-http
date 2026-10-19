@@ -11,7 +11,9 @@ type EntityType = 'maintenance' | 'task' | 'activity';
 type HttpMethod = 'PATCH' | 'PUT' | 'POST';
 type ResponseKind = 'json' | 'text' | 'empty';
 type ProducedType = 'maintenance' | 'task' | 'activity';
-type ActionName = 'addActivity' | 'addImage' | 'setImageVisibility' | 'setActivityVisibility' | 'ensureEquipmentMaintenance' | 'addTaskGeneral' | 'finalizeOrder';
+type ActionName = 'addActivity' | 'addImage' | 'setImageVisibility' | 'setActivityVisibility' | 'ensureEquipmentMaintenance' | 'addTaskGeneral' | 'startOrder' | 'finalizeOrder';
+/** Acciones que solo existen desde el contrato/borrador schemaVersion 1.2. */
+const SCHEMA_12_ACTIONS: ReadonlySet<ActionName> = new Set<ActionName>(['ensureEquipmentMaintenance', 'addTaskGeneral', 'startOrder', 'finalizeOrder']);
 
 interface FieldContract {
   originalPath: string;
@@ -42,6 +44,7 @@ interface ActionContract {
   attach?: EndpointContract;
   toggle?: EndpointContract;
   update?: EndpointContract;
+  start?: EndpointContract;
   linkEquipment?: EndpointContract;
   createMaintenance?: EndpointContract;
 }
@@ -98,7 +101,7 @@ export interface AuditStep {
   orderId?: string;
   taskIndex?: number;
   activityIndex?: number;
-  /** Estado de la orden observado antes de una transición (solo finalize). */
+  /** Estado de la orden observado antes de una transición (solo start/finalize). */
   stateBefore?: number;
   stateAfter?: number;
   closeBefore?: boolean;
@@ -165,6 +168,9 @@ const EXPECTED_ACTIONS: Record<ActionName, Record<string, ExpectedStep>> = {
   ensureEquipmentMaintenance: {
     linkEquipment: { method: 'PUT', path: '/order/{orderId}', responses: ['json', 'empty', 'text'], response: 'json' },
     createMaintenance: { method: 'POST', path: '/maintenance/empty', responses: ['json', 'empty', 'text'], response: 'json' },
+  },
+  startOrder: {
+    start: { method: 'PUT', path: '/order/{orderId}', responses: ['json', 'empty', 'text'], response: 'json' },
   },
   finalizeOrder: {
     update: { method: 'PUT', path: '/order/{orderId}', responses: ['json', 'empty', 'text'], response: 'json' },
@@ -273,7 +279,7 @@ function parseContract(value: JsonRecord): WriteContract {
     const source = record(value.actions ?? {}, 'actions del contrato');
     for (const action of Object.keys(EXPECTED_ACTIONS) as ActionName[]) {
       if (source[action] === undefined) continue;
-      if (version === '1.1' && (action === 'ensureEquipmentMaintenance' || action === 'addTaskGeneral' || action === 'finalizeOrder')) throw new Error(`La acción ${action} requiere un contrato schemaVersion "1.2".`);
+      if (version === '1.1' && SCHEMA_12_ACTIONS.has(action)) throw new Error(`La acción ${action} requiere un contrato schemaVersion "1.2".`);
       const raw = record(source[action], `acción ${action}`); const parsed: ActionContract = {};
       for (const step of Object.keys(EXPECTED_ACTIONS[action])) parsed[step as keyof ActionContract] = endpointContract(raw[step], action, step);
       actions[action] = parsed;
@@ -340,7 +346,7 @@ function actionFromValue(value: unknown, reviewMaintenanceId: string | undefined
   if (!operationId || !/^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$/.test(operationId)) throw new Error('Cada operación requiere operationId único (3-80 caracteres).');
   if (!action || !(action in EXPECTED_ACTIONS)) throw new Error(`Operación ${operationId} inválida.`);
   const is12 = schemaVersion === '1.2';
-  if (!is12 && (action === 'ensureEquipmentMaintenance' || action === 'addTaskGeneral' || action === 'finalizeOrder')) throw new Error(`La acción ${action} requiere schemaVersion "1.2"; no se reinterpreta un borrador anterior.`);
+  if (!is12 && SCHEMA_12_ACTIONS.has(action)) throw new Error(`La acción ${action} requiere schemaVersion "1.2"; no se reinterpreta un borrador anterior.`);
   const maintenanceId = string(item.maintenanceId); const maintenanceRef = refValue(item, 'maintenanceRef', operationId);
   const taskId = string(item.taskId); const taskRef = refValue(item, 'taskRef', operationId);
   const activityId = string(item.activityId); const activityRef = refValue(item, 'activityRef', operationId);
@@ -355,14 +361,14 @@ function actionFromValue(value: unknown, reviewMaintenanceId: string | undefined
     if (!target) throw new Error(`La operación ${operationId} referencia ${ref}, que no aparece antes en el archivo.`);
     if (target !== type) throw new Error(`La operación ${operationId} usa ${type}Ref hacia una operación que produce ${target}.`);
   }
-  const needsMaintenance = action !== 'ensureEquipmentMaintenance' && action !== 'finalizeOrder';
+  const needsMaintenance = action !== 'ensureEquipmentMaintenance' && action !== 'startOrder' && action !== 'finalizeOrder';
   let baseMaintenanceId = maintenanceId;
   if (!baseMaintenanceId && !maintenanceRef) {
     if (is12) { if (needsMaintenance) throw new Error(`La operación ${operationId} debe declarar maintenanceId o maintenanceRef.`); }
     else if (needsMaintenance) baseMaintenanceId = reviewMaintenanceId;
   }
 
-  if (action === 'finalizeOrder') {
+  if (action === 'startOrder' || action === 'finalizeOrder') {
     if (maintenanceId || maintenanceRef || taskId || taskRef || activityId || activityRef || string(item.equipmentId)) throw new Error(`${operationId} no admite referencias de mantenimiento, tarea, actividad ni equipo.`);
     return { kind: 'action', operationId, action, original: {} };
   }
@@ -432,7 +438,7 @@ function parseReview(value: JsonRecord, requireApproved: boolean): { schemaVersi
       const parsed = actionFromValue(operation, maintenanceId, String(schemaVersion), produced);
       if (ids.has(parsed.operationId)) throw new Error(`operationId duplicado: ${parsed.operationId}.`);
       ids.add(parsed.operationId);
-      if (parsed.action === 'ensureEquipmentMaintenance' || parsed.action === 'finalizeOrder') needsOrderId = true;
+      if (parsed.action === 'ensureEquipmentMaintenance' || parsed.action === 'startOrder' || parsed.action === 'finalizeOrder') needsOrderId = true;
       const produces = ACTION_PRODUCES[parsed.action]; if (produces) produced.set(parsed.operationId, produces);
       items.push(parsed);
     }
@@ -442,8 +448,11 @@ function parseReview(value: JsonRecord, requireApproved: boolean): { schemaVersi
   if (finalizeItems.length === 1 && items.at(-1) !== finalizeItems[0]) {
     throw new Error('finalizeOrder debe ser la última mutación efectiva del lote.');
   }
+  const startItems = items.filter((item) => item.kind === 'action' && item.action === 'startOrder');
+  if (startItems.length > 1) throw new Error('Un lote solo puede contener un startOrder.');
+  if (startItems.length && finalizeItems.length) throw new Error('startOrder y finalizeOrder deben aplicarse en lotes separados: la planificación lee el estado vivo antes de escribir.');
   if (!items.length) throw new Error('El borrador no contiene cambios ni operaciones.');
-  if (needsOrderId && !orderId) throw new Error('ensureEquipmentMaintenance exige order.orderId inequívoco; no se selecciona una orden solo por code.');
+  if (needsOrderId && !orderId) throw new Error('Las acciones de orden (ensureEquipmentMaintenance, startOrder, finalizeOrder) exigen order.orderId inequívoco; no se selecciona una orden solo por code.');
   return { schemaVersion, orderCode, orderId, orderApproved, items };
 }
 
@@ -533,6 +542,7 @@ function estimatedWrites(item: WorkItem): number {
     case 'ensureEquipmentMaintenance': return 2;
     case 'addTaskGeneral': return 2;
     case 'finalizeOrder': return 1;
+    case 'startOrder': return 1;
     default: return 1;
   }
 }
@@ -546,6 +556,7 @@ function finalStep(item: WorkItem): string {
   if (item.action === 'ensureEquipmentMaintenance') return 'ensure';
   if (item.action === 'addTaskGeneral') return 'task';
   if (item.action === 'finalizeOrder') return 'finalize';
+  if (item.action === 'startOrder') return 'start';
   return 'visibility';
 }
 async function detailFor(maintenanceId: string, token: string): Promise<JsonRecord> {
@@ -608,6 +619,26 @@ type FinalizeClass =
   | { status: 'alreadyApplied'; state?: number; close: boolean; reason: 'finalized' | 'closed' }
   | { status: 'pending'; state: 2; close: boolean }
   | { status: 'unsupported'; state: unknown };
+type StartClass =
+  | { status: 'alreadyApplied'; state?: number; close: boolean; reason: 'started' | 'finalized' | 'closed' }
+  | { status: 'pending'; state: 1; close: boolean }
+  | { status: 'unsupported'; state: unknown };
+/**
+ * Solo se acredita una transición: `state = 1` → `state = 2` mediante
+ * `PUT /order/{orderId}` con `{"state":2}`. Un estado ya iniciado, finalizado o
+ * cerrado se respeta sin degradarlo ni volver a escribir; cualquier otro estado
+ * queda sin contrato y se bloquea.
+ */
+function classifyStart(order: JsonRecord): StartClass {
+  const state = stateNumber(order.state);
+  const close = order.close === true;
+  if (state === 2) return { status: 'alreadyApplied', state, close, reason: 'started' };
+  if (state === 3) return { status: 'alreadyApplied', state, close, reason: 'finalized' };
+  if (close) return { status: 'alreadyApplied', state, close, reason: 'closed' };
+  if (state === 6) return { status: 'alreadyApplied', state, close, reason: 'closed' };
+  if (state === 1) return { status: 'pending', state: 1, close };
+  return { status: 'unsupported', state: order.state };
+}
 /**
  * Solo se acredita una transición: `state = 2` → `state = 3` mediante
  * `PUT /order/{orderId}` con `{"state":3}`. Un estado posterior o cerrado se
@@ -678,6 +709,7 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
     }
     if (item.action === 'addActivity' && (!actionContract.create || !actionContract.name || !actionContract.reply)) throw new Error('El contrato no define create, name y reply para addActivity.');
     if (item.action === 'finalizeOrder' && !actionContract.update) throw new Error('El contrato no define update para finalizeOrder.');
+    if (item.action === 'startOrder' && !actionContract.start) throw new Error('El contrato no define start para startOrder.');
   }
   const maxChanges = options.maxChanges ?? 20;
   if (!Number.isInteger(maxChanges) || maxChanges < 1) throw new Error('maxChanges debe ser un entero positivo.');
@@ -727,6 +759,18 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
     if (item.kind === 'field') {
       const field = contract.operations[item.entity]!.fields[item.field]; item.writes = 1;
       (stateOf(entityCurrent(await liveDetail(item.maintenanceId), item), field, item) === 'alreadyApplied' ? alreadyApplied : pending).push(item); continue;
+    }
+    if (item.action === 'startOrder') {
+      const orderId = requireResolved(parsed.orderId, 'orderId', operationId);
+      const order = await liveOrder(orderId); assertOrderCode(order, parsed.orderCode);
+      const classification = classifyStart(order);
+      if (classification.status === 'unsupported') throw unsupportedTransition(operationId, classification.state);
+      if (classification.status === 'alreadyApplied') {
+        item.writes = 0; alreadyApplied.push(item);
+        resolvedProducerSteps.push({ operationId, action: item.action, step: 'start', status: 'alreadyApplied', orderId, stateBefore: classification.state, stateAfter: classification.state, closeBefore: classification.close, closeAfter: classification.close });
+        continue;
+      }
+      item.writes = 1; pending.push(item); continue;
     }
     if (item.action === 'finalizeOrder') {
       const orderId = requireResolved(parsed.orderId, 'orderId', operationId);
@@ -828,6 +872,69 @@ export async function applyReview(draftPath: string, options: ApplyReviewOptions
         const body: JsonRecord = {}; setPath(body, field.bodyPath, item.proposed);
         await sendVerified(endpointFor(field.path ?? operation.path, item), field.method ?? operation.method, body, 'json', async () => equal(getPath(entityCurrent(await loadDetail(item.maintenanceId), item), field.verifyPath), item.proposed), { operationId, action: `${item.entity}.${item.field}`, step: 'write', status: 'completed', maintenanceId: item.maintenanceId, taskId: item.taskId, activityId: item.activityId });
         result.applied.push(item); continue;
+      }
+      if (item.action === 'startOrder') {
+        const orderId = requireResolved(parsed.orderId, 'orderId', operationId);
+        const start = contract.actions[item.action]!.start!;
+        const plan = await loadOrder(orderId); assertOrderCode(plan, parsed.orderCode);
+        const planned = classifyStart(plan);
+        if (planned.status === 'unsupported') {
+          result.audit.status = 'failed';
+          await progress({ operationId, action: item.action, step: 'start', status: 'failed', orderId, stateBefore: stateNumber(planned.state), error: 'unsupported_order_state_transition' });
+          throw unsupportedTransition(operationId, planned.state);
+        }
+        if (planned.status === 'alreadyApplied') {
+          item.writes = 0; result.alreadyApplied.push(item);
+          await progress({ operationId, action: item.action, step: 'start', status: 'alreadyApplied', orderId, stateBefore: planned.state, stateAfter: planned.state, closeBefore: planned.close, closeAfter: planned.close });
+          continue;
+        }
+        const stateBefore = planned.state; const closeBefore = planned.close;
+        const fresh = await loadOrder(orderId); assertOrderCode(fresh, parsed.orderCode);
+        const rechecked = classifyStart(fresh);
+        if (rechecked.status === 'unsupported') {
+          result.audit.status = 'failed';
+          await progress({ operationId, action: item.action, step: 'start', status: 'failed', orderId, stateBefore, error: 'unsupported_order_state_transition' });
+          throw unsupportedTransition(operationId, rechecked.state);
+        }
+        if (rechecked.status === 'alreadyApplied') {
+          item.writes = 0; result.alreadyApplied.push(item);
+          await progress({ operationId, action: item.action, step: 'start', status: 'alreadyApplied', orderId, stateBefore, stateAfter: rechecked.state, closeBefore, closeAfter: rechecked.close });
+          continue;
+        }
+        const closeImmediatelyBefore = rechecked.close;
+        let writeError: unknown;
+        try { await sendApiJson(endpointFor(start.path, { orderId }), token, start.method, { state: 2 }, options.timeoutMs, { responseType: start.response }); }
+        catch (error) {
+          writeError = error;
+          if (!isAmbiguousWrite(error)) {
+            result.audit.status = 'failed';
+            await progress({ operationId, action: item.action, step: 'start', status: 'failed', orderId, stateBefore, error: error instanceof Error ? error.message : String(error) });
+            throw error;
+          }
+        }
+        const after = await loadOrder(orderId);
+        const stateAfter = stateNumber(after.state); const closeAfter = after.close === true;
+        if (stateAfter === 2) {
+          if (closeAfter !== closeImmediatelyBefore) {
+            result.audit.status = 'ambiguous';
+            const message = 'unexpected_close_transition: startOrder cambió close junto con state=2; no se reintentará.';
+            await progress({ operationId, action: item.action, step: 'start', status: 'ambiguous', orderId, stateBefore, stateAfter, closeBefore: closeImmediatelyBefore, closeAfter, error: message });
+            throw new Error(message);
+          }
+          item.writes = 1; result.applied.push(item);
+          await progress({ operationId, action: item.action, step: 'start', status: 'completed', orderId, stateBefore, stateAfter: 2, closeBefore: closeImmediatelyBefore, closeAfter });
+          await delay(); continue;
+        }
+        if (writeError) {
+          result.audit.status = 'ambiguous';
+          const message = writeError instanceof Error ? writeError.message : String(writeError);
+          await progress({ operationId, action: item.action, step: 'start', status: 'ambiguous', orderId, stateBefore, stateAfter, closeBefore: closeImmediatelyBefore, closeAfter, error: message });
+          throw writeError instanceof Error ? writeError : new Error(message);
+        }
+        result.audit.status = 'failed';
+        const message = `Verificación fallida para ${operationId}.start: state=${String(after.state ?? '(sin estado)')}.`;
+        await progress({ operationId, action: item.action, step: 'start', status: 'failed', orderId, stateBefore, stateAfter, closeBefore: closeImmediatelyBefore, closeAfter, error: message });
+        throw new Error(message);
       }
       if (item.action === 'finalizeOrder') {
         const orderId = requireResolved(parsed.orderId, 'orderId', operationId);

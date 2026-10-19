@@ -2,6 +2,16 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la CLI permanezca en `0.x`, una versión minor puede ajustar contratos visibles; cada ajuste se documentará antes del release.
 
+## [0.5.0] - 2026-10-19
+
+### Añadido
+
+- `order apply-review` 1.2 añade la acción `startOrder` (`PUT /order/{orderId}` con `{"state":2}`): relee la orden antes y después, aplica solo desde `state 1`, respeta `state 2` (ya iniciada), `state 3`, `state 6` y `close = true` sin degradarlos ni volver a escribir, bloquea cualquier otra transición con `unsupported_order_state_transition`, reconcilia timeout/5xx por relectura y no reintenta la mutación. Un lote admite como máximo un `startOrder` y `finalizeOrder` sigue siendo la última mutación efectiva.
+
+### Cambiado
+
+- La CLI reporta `0.5.0`. `startOrder` requiere contrato y borrador `schemaVersion` `1.2`; los contratos `1.0`/`1.1` y los borradores anteriores no se reinterpretan.
+
 ## [0.4.0] - 2026-09-26
 
 ### Añadido
