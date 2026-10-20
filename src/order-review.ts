@@ -463,6 +463,9 @@ function parseReview(value: JsonRecord, requireApproved: boolean): { schemaVersi
   const startItems = items.filter((item) => item.kind === 'action' && item.action === 'startOrder');
   if (startItems.length > 1) throw new Error('Un lote solo puede contener un startOrder.');
   if (startItems.length && finalizeItems.length) throw new Error('startOrder y finalizeOrder deben aplicarse en lotes separados: la planificación lee el estado vivo antes de escribir.');
+  if (closeItems.length === 1 && items.length > 1) {
+    throw new Error('closeOrder debe ser la única operación del lote: el cierre administrativo exige un lote y una aprobación separados de la mejora.');
+  }
   if (!items.length) throw new Error('El borrador no contiene cambios ni operaciones.');
   if (needsOrderId && !orderId) throw new Error('Las acciones de orden (ensureEquipmentMaintenance, startOrder, finalizeOrder, closeOrder) exigen order.orderId inequívoco; no se selecciona una orden solo por code.');
   return { schemaVersion, orderCode, orderId, orderApproved, items };
