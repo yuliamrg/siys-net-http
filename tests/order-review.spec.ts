@@ -1470,6 +1470,18 @@ test('closeOrder y finalizeOrder no pueden coexistir en el mismo lote', async ()
   await fs.rm(files.directory, { recursive: true, force: true });
 });
 
+test('closeOrder es la única operación del lote: una mejora previa también se rechaza', async () => {
+  const draft: any = closeDraft({ code: '007644', orderId: 'order-1' });
+  draft.reviews[0].operations.unshift({ operationId: 'op-task', action: 'addTaskGeneral', maintenanceId: 'm-1' });
+  const files = await writeFiles(draft, CONTRACT_13);
+  let requests = 0;
+  global.fetch = async () => { requests += 1; return response({}); };
+  await expect(applyReview(files.draftPath, { contractPath: files.contractPath, confirm: true, autoLogin: false }))
+    .rejects.toThrow(/closeOrder debe ser la única operación del lote/);
+  expect(requests).toBe(0);
+  await fs.rm(files.directory, { recursive: true, force: true });
+});
+
 test('closeOrder: un borrador 1.2 se rechaza en lugar de reinterpretarse', async () => {
   const files = await writeFiles(closeDraft({ code: '007644', orderId: 'order-1' }, '1.2'), CONTRACT_12);
   let requests = 0;

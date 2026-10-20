@@ -1,6 +1,6 @@
 {
   "name": "siys-explorer",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "Exploracion autorizada y exportacion de datos de SIYS.",

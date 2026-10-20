@@ -2,6 +2,13 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la CLI permanezca en `0.x`, una versión minor puede ajustar contratos visibles; cada ajuste se documentará antes del release.
 
+## [0.5.1] - 2026-10-20
+
+### Cambiado
+
+- `order apply-review` 1.3 exige que `closeOrder` sea la única operación del lote: el cierre administrativo no comparte lote ni aprobación con ediciones de texto, actividades, imágenes u otras acciones. Se conservan las reglas existentes de lote separado frente a `finalizeOrder` y de máximo un `startOrder`.
+- Un contrato `1.2`/`1.3` que edite textos debe declarar el bloque `operations`; `"operations": {}` solo autoriza acciones estructurales y cualquier edición de texto se rechaza antes de escribir.
+
 ## [0.5.0] - 2026-10-19
 
 ### Añadido
@@ -63,6 +70,7 @@ Todos los cambios relevantes de este proyecto se documentan aquí. Mientras la C
 - `brace-expansion` se resolvió a 1.1.18 y 2.1.4; `npm audit --omit=dev` no reporta vulnerabilidades.
 - Se mantiene TLS obligatorio y no se añadieron reintentos para escrituras.
 
+[0.5.1]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.5.1
 [0.5.0]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.5.0
 [0.4.0]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.4.0
 [0.2.0]: https://github.com/yuliamrg/siys-net-http/releases/tag/v0.2.0

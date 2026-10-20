@@ -326,11 +326,27 @@ El estado solo se incluye en un JSON de revisión cuando la observación, activi
 
 El contrato `1.3` conserva el contrato `1.2` y añade `closeOrder`. Un borrador `1.3` exige un contrato `1.3`; un borrador `1.0`, `1.1` o `1.2` nunca se reinterpreta como `1.3`. Un runtime anterior que no conozca `closeOrder` falla cerrado ante la acción desconocida y no escribe.
 
+Un contrato `1.2`/`1.3` que también edite textos debe declarar el bloque `operations` con los campos capturados; `"operations": {}` solo autoriza acciones estructurales y cualquier edición de texto se rechaza antes de escribir. Ejemplo con los campos de texto acreditados (no incluye `equipmentState` ni `task.name`, que no están autorizados por los contratos registrados; el motor rechaza el renombrado de tareas):
+
 ```json
 {
   "schemaVersion": "1.3",
   "enabled": true,
-  "operations": {},
+  "operations": {
+    "maintenance": {
+      "method": "PUT",
+      "path": "/maintenance/{maintenanceId}/observations",
+      "fields": { "observations": { "originalPath": "observations", "verifyPath": "observationsCorrected.reply", "bodyPath": "observationsCorrected.reply" } }
+    },
+    "activity": {
+      "method": "PUT",
+      "path": "/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=nameCorrected",
+      "fields": {
+        "name": { "originalPath": "name", "verifyPath": "nameCorrected.reply", "bodyPath": "reply" },
+        "reply": { "method": "PUT", "path": "/maintenance/{maintenanceId}/task/{taskId}/activity/{activityId}?field=replyCorrected", "originalPath": "reply", "verifyPath": "replyCorrected.reply", "bodyPath": "reply" }
+      }
+    }
+  },
   "actions": {
     "closeOrder": {
       "close": { "method": "PUT", "path": "/order/{orderId}" }
@@ -356,9 +372,9 @@ Antes de escribir se relee la orden viva por `orderId` y se confirma el código.
 
 Justo antes del `PUT` se vuelve a leer la orden: si ya está en `state == 6` no se escribe; si sigue en `state == 3` se envía una sola vez; si cambió a un estado sin contrato se bloquea. Nunca se usa un baseline viejo. Después del `PUT` se relee la orden: **el éxito exige `state == 6`**; `close` se registra antes y después solo como dato observado. Un resultado con `state == 3` o cualquier otro estado queda `failed` y no se reintenta; tras un timeout, un 5xx o una respuesta no interpretable se relee y solo se reconcilia como `completed` si `state == 6`. La mutación no se reintenta.
 
-`closeOrder` y `finalizeOrder` no pueden coexistir en el mismo lote: la finalización debe quedar persistida y verificada en un lote anterior, y el cierre exige su propia aprobación. `closeOrder` debe ser además la última mutación efectiva del lote; ninguna escritura puede suceder después del cierre. `closeOrder` exige `order.orderId` inequívoco; no se selecciona una orden solo por `code`.
+`closeOrder` y `finalizeOrder` no pueden coexistir en el mismo lote: la finalización debe quedar persistida y verificada en un lote anterior, y el cierre exige su propia aprobación. El lote de cierre contiene **exclusivamente** `closeOrder`: no admite ediciones de texto, actividades, imágenes ni otras acciones, de modo que una sola aprobación no cubra a la vez la mejora y el cierre irreversible. La regla de lote exclusivo se incorporó en la CLI `0.5.1`; el motor `0.2.2` la valida antes de invocar la CLI, por lo que `0.5.0` solo es seguro a través del motor. `closeOrder` exige `order.orderId` inequívoco; no se selecciona una orden solo por `code`.
 
-La CLI no valida readiness y no la convierte en precondición de escritura: no comprueba que las actividades estén completas, que exista evidencia fotográfica por actividad ni que la aceptación o entrega esté registrada. Esas condiciones las exige el orquestador (`siys-order-improver`) y la skill antes de construir el lote de cierre. La CLI solo acredita y verifica lo que el backend informa (`state`, `close`, transición y relectura), y tampoco corrige datos para satisfacerlas.
+La CLI no valida readiness y no la convierte en precondición de escritura: no comprueba que las actividades estén completas, que exista evidencia fotográfica por actividad ni que la aceptación o entrega esté registrada. El orquestador informa esas inconsistencias como observaciones, sin bloquear el cierre y sin completar ni falsificar datos; la decisión de negocio la toma el coordinador con una instrucción explícita. La CLI solo acredita y verifica lo que el backend informa (`state`, `close`, transición y relectura), y tampoco corrige datos para satisfacerlas.
 
 El paso de auditoría se llama `close` y registra `orderId`, el estado previo, el estado verificado posterior y el resultado `completed`/`alreadyApplied`/`ambiguous`/`failed`.
 
